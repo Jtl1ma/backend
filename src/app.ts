@@ -15,8 +15,7 @@ import ngrok from '@ngrok/ngrok';
 import { Server } from 'socket.io';
 import http from 'http';
 import atendente from './routes/atendente';
-import migrate from './database/migrate';
-const path = require('path');
+import path from 'path';
 const helmet = require('helmet');
 dotenv.config();
 
@@ -24,104 +23,81 @@ const app: Express = express();
 const server = http.createServer(app);
 const PORT = config.port || 3000;
 
-(async () => {
+/**
+ * Initialize the application
+ */
+async function startServer() {
   try {
-   
- // Export io for use in other modules
- const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-    credentials: true
-  }
-});
+    // Ensure database is initialized before setting up any routes
+    await initializeDatabase();
+    startReminderScheduler();
+
+    // Export io for use in other modules
+    const io = new Server(server, {
+      cors: {
+        origin: '*',
+        methods: ["GET", "POST"],
+        credentials: true
+      }
+    });
+
     app.set('io', io);
     app.use(helmet());
 
-// Middleware
-app.use(cors());
-app.use(express.json({ limit: '10kb' }));
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+    // Middleware
+    app.use(cors());
+    app.use(express.json({ limit: '10kb' }));
+    app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
-// Rotas públicas
-app.use('/webhook', webhookRouter);
+    // Register routes
+    app.use('/webhook', webhookRouter);
+    app.use('/auth', adminRouter);
+    app.use('/atendente', atendente);
+    app.use('/api/tickets', authMiddleware, ticketRouter);
+    app.use('/api/scheduling', authMiddleware, schedulingRouter);
+    app.use('/api/analytics', authMiddleware, analyticsRouter);
+    app.use('/api/instagram', authMiddleware, instagramRouter);
+    app.use('/api/admin', authMiddleware, adminRouter);
 
-// Rotas protegidas (requer autenticação)
-app.use('/api/tickets', authMiddleware, ticketRouter);
-app.use('/api/scheduling', authMiddleware, schedulingRouter);
-app.use('/api/analytics', authMiddleware, analyticsRouter);
-app.use('/api/instagram', authMiddleware, instagramRouter);
-app.use('/api/admin', authMiddleware, adminRouter);
-
-// Rota pública para admin login
-app.use('/auth', adminRouter);
-
-// Rota publica para atendente login
-app.use('/atendente', atendente);
-
-// Health check
-app.get('/health', async(req, res) => {
-  res.json({
-    status: 'online',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0'
-  });
-
-});
-
-// Ngrok
-const startNgrok = async (port: number) => {
-    const listener = await ngrok.forward({
-        addr: port,
-        authtoken_from_env: true,
+    // Health check
+    app.get('/health', (req, res) => {
+      res.json({
+        status: 'online',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0'
+      });
     });
-    console.log(`✅ Ngrok URL: ${listener.url()}`);
-    return listener.url();
-};
 
+    // Error handling
+    app.use((err: Error, req: any, res: any, next: any) => {
+      console.error('Unexpected error:', err);
+      res.status(500).json({ error: 'Internal Server Error' });
+    });
 
-// Inicialização
-async function startServer() {
-  let retry = 0;
-  const maxRetries = 5;
-  while (retry < maxRetries) {
-    try {
-  //await migrate();
-  await initializeDatabase();
-  startReminderScheduler();
+    // Server startup
+    server.listen(PORT, () => {
+      console.log('🚀 Servidor rodando na porta', PORT);
+      console.log('📱 Webhook disponível em: /webhook');
+      console.log('📊 Dashboard em: /api/analytics/dashboard');
+      console.log('🔐 Login em: /auth/login');
 
-  break; // Se a inicialização for bem-sucedida, saia do loop
-    } catch (err: any) {
-      console.error(`Erro ao inicializar o banco de dados (tentativa ${retry + 1}):`, err.message);
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Aguarda 2 segundos antes de tentar novamente
-      retry++;
-    }
-  }
-  if (retry === maxRetries) {
-    console.error('Falha ao inicializar o banco de dados após várias tentativas. Encerrando o servidor.');
+      // Configure ngrok to expose the local server
+      ngrok.forward({
+        addr: PORT,
+        authtoken_from_env: true,
+      }).then(listener => {
+        console.log(`✅ Ngrok URL: ${listener.url()}`);
+      }).catch(error => {
+        console.error('Failed to start ngrok:', error.message);
+      });
+    });
+  } catch (err) {
+    console.error('Error starting server:', err);
+    server.close();
     process.exit(1);
   }
-  
-  server.listen(PORT, () => {
-    console.log('🚀 Servidor rodando na porta', PORT);
-    console.log('📱 Webhook disponível em: /webhook');
-    console.log('📊 Dashboard em: /api/analytics/dashboard');
-    console.log('🔐 Login em: /auth/login');
-
-    // Configura o ngrok para expor o servidor local
-  
-  startNgrok(3333).catch((error: any) => {
-    console.error('Failed to start ngrok:', error.message);
-  });
-
-  });
 }
 
 startServer().catch(console.error);
-} catch (err: any) {
-    console.error('Error starting server:', err);
-    process.exit(1);
-  }
-})();
 
 export default app;

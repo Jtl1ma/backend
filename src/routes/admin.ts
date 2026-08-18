@@ -22,8 +22,10 @@ router.post('/login', async (req: Request, res: Response) => {
       'SELECT * FROM atendentes WHERE username = ?',
       [username]
     );
+
+    console.log('Dados:', admin);
     
-    if (!admin && !atendente) {
+    if (!admin || !atendente) {
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
     

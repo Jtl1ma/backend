@@ -1,22 +1,20 @@
 import { Router, Request, Response } from 'express';
-import { getDatabase } from '../database/database';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import config from '../config';
 import { authMiddleware } from '../middleware/auth';
 
 const atendente = Router();
-const db = getDatabase();
 
 
 atendente.post('/setup', async (req: Request, res: Response) => {
+    const db = require('../database/database').getDatabase();
   try {
     const { name, username, phone, password, email } = req.body;
 
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    const row = await db.run(`SELECT * FROM atendentes WHERE username = ?`, [username]);
-    
+    const row = await db.all(`SELECT * FROM atendentes WHERE username = ?`, [username]);
     
     if (!row) {
       const result = await db.run(
@@ -42,6 +40,7 @@ atendente.post('/setup', async (req: Request, res: Response) => {
 });
 
 atendente.get('/list', async (req: Request, res: Response) => {
+    const db = require('../database/database').getDatabase();
     try {
         const rows = await db.all(`SELECT id, name, username, phone, email FROM atendentes`);
         res.status(200).json(rows);
@@ -52,6 +51,7 @@ atendente.get('/list', async (req: Request, res: Response) => {
 });
 
 atendente.get('/get/:name', async (req: Request, res: Response) => {
+    const db = require('../database/database').getDatabase();
     const { name } = req.params;
     try {
         const row = await db.get(`SELECT id, name, username, phone, email FROM atendentes WHERE name = ?`, [name]);
@@ -67,6 +67,7 @@ atendente.get('/get/:name', async (req: Request, res: Response) => {
 });
 
 atendente.get('/get/:id', async (req: Request, res: Response) => {
+    const db = require('../database/database').getDatabase();
     const { id } = req.params;
     try {
         const row = await db.get(`SELECT id, name, username, phone, email FROM atendentes WHERE id = ?`, [id]);
@@ -82,6 +83,7 @@ atendente.get('/get/:id', async (req: Request, res: Response) => {
 });
 
 atendente.put('/update/:id', async (req: Request, res: Response) => {
+    const db = require('../database/database').getDatabase();
     const { id } = req.params;
     const { name, username, phone, password, email } = req.body;
     try {
@@ -102,6 +104,7 @@ atendente.put('/update/:id', async (req: Request, res: Response) => {
 });
 
 atendente.delete('/delete/:id', authMiddleware, async (req: Request, res: Response) => {
+    const db = require('../database/database').getDatabase();
     const { id } = req.params;
     try {
         const result = await db.run(`DELETE FROM atendentes WHERE id = ?`, [id]);

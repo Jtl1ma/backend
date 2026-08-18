@@ -1,4 +1,4 @@
-import { initializeDatabase } from './database';
+import { initializeDatabase } from "./database";
 
 async function migrate() {
   const db = await initializeDatabase();
@@ -14,7 +14,19 @@ async function migrate() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
-  
+  // Adicionar tabela de atendentes
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS atendentes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      username TEXT UNIQUE NOT NULL,
+      phone TEXT,
+      password TEXT NOT NULL,
+      email TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Adicionar índices para performance
   await db.exec(`
     CREATE INDEX IF NOT EXISTS idx_conversations_wa_id ON conversations(wa_id);
@@ -24,9 +36,12 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_schedulings_wa_id ON schedulings(wa_id);
     CREATE INDEX IF NOT EXISTS idx_schedulings_date ON schedulings(date);
     CREATE INDEX IF NOT EXISTS idx_reminders_scheduled_for ON reminders(scheduled_for);
+    CREATE INDEX IF NOT EXISTS idx_atendentes_username ON atendentes(username);
   `);
   
   console.log('✅ Migração concluída com sucesso!');
 }
 
 migrate().catch(console.error);
+
+//export default migrate;

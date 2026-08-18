@@ -18,18 +18,22 @@ router.post('/login', async (req: Request, res: Response) => {
       'SELECT * FROM admins WHERE username = ?',
       [username]
     );
+    const atendente = await db.get(
+      'SELECT * FROM atendentes WHERE username = ?',
+      [username]
+    );
     
-    if (!admin) {
+    if (!admin && !atendente) {
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
     
-    const validPassword = await bcrypt.compare(password, admin.password);
+    const validPassword = await bcrypt.compare(password, admin.password || atendente.password);
     if (!validPassword) {
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
     
     const token = jwt.sign(
-      { id: admin.id, username: admin.username },
+      { id: admin.id, username: admin.username, atendente: atendente.username },
       config.jwtSecret || 'secret',
       { expiresIn: '24h' }
     );
@@ -41,6 +45,13 @@ router.post('/login', async (req: Request, res: Response) => {
         id: admin.id,
         username: admin.username,
         email: admin.email
+      },
+      atendente: {
+        id: atendente.id,
+        username: atendente.username,
+        name: atendente.name,
+        phone: atendente.phone,
+        email: atendente.email
       }
     });
   } catch (error) {

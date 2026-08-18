@@ -1,11 +1,13 @@
 import sqlite3 from 'sqlite3';
 import { Database, open } from 'sqlite';
+import path from 'path';
 
 let db: Database;
 
 export async function initializeDatabase() {
+  try {
   db = await open({
-    filename: './whatsapp_agent.db',
+    filename: path.resolve(__dirname, '..', '../whatsapp_agente.db'),
     driver: sqlite3.Database
   });
 
@@ -57,9 +59,23 @@ export async function initializeDatabase() {
       escalated_human INTEGER DEFAULT 0,
       average_response_time INTEGER DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS atendentes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      username TEXT UNIQUE NOT NULL,
+      phone TEXT,
+      password TEXT NOT NULL,
+      email TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    
   `);
 
   return db;
+  } catch (error: any) {
+    console.error('Erro ao inicializar o banco de dados:', error.message);
+    throw error;
+  }
 }
 
 export function getDatabase() {

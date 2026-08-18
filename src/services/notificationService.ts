@@ -42,6 +42,8 @@ export class NotificationService {
       socket.on('subscribe_to_tickets', (ticketId: number) => {
         // Implementar filtragem por ticket específico
         console.log(`Cliente ${socket.id} se inscreveu para ticket ${ticketId}`);
+        // Implementar lógica para notificar atendente responsável pelo ticket
+        console.log(`Notificar atendente responsavel pelo ticket ${ticketId}`);
       });
     });
   }

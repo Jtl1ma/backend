@@ -10,16 +10,12 @@ import { instagramRouter } from './routes/instagram';
 import { adminRouter } from './routes/admin';
 import { startReminderScheduler } from './services/reminderService';
 import { authMiddleware } from './middleware/auth';
-//import { analyzeSentiment } from './services/sentimentService';
-//import { fetchInstagramPosts } from './services/whatsappService';
-//import { isWeekend } from './utils/dateUtils';
-import config, {freeModeles} from './config';
+import config from './config';
 import ngrok from '@ngrok/ngrok';
-//import axios from 'axios';
-import { Server, Socket } from 'socket.io';
+import { Server } from 'socket.io';
 import http from 'http';
-//import { NotificationService } from './services/notificationService';
-//import { createConnection } from "typeorm";
+import atendente from './routes/atendente';
+import migrate from './database/migrate';
 const path = require('path');
 const helmet = require('helmet');
 dotenv.config();
@@ -30,26 +26,7 @@ const PORT = config.port || 3000;
 
 (async () => {
   try {
-  /*   const connection = await createConnection({
-      type: 'sqlite', // O TypeORM requer a notação 'sqlite' (sem dois-pontos) quando usado com sqlite3 v5.x
-      database: path.join(__dirname, '../../data/data.sqlite'),
-      synchronize: true,
-      logging: false,
-      entities: [
-        require('./models/messageEntity'),
-        require('./models/fileEntity')
-      ]
-    });*/
-
-
-    /*const io = new express().use(serverStatic("public")).listen(PORT || 3333);
-    const socketIo = require("socket.io")(io, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]    
-    }
-  });*/
-  
+   
  // Export io for use in other modules
  const io = new Server(server, {
   cors: {
@@ -58,30 +35,13 @@ const PORT = config.port || 3000;
     credentials: true
   }
 });
-    //app.set('db', connection);
     app.set('io', io);
-
     app.use(helmet());
-
 
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
-
-
-// Routes
-   /* const messageRoutes = require('./routes/messageRoutes');
-    const fileRoutes = require('./routes/fileRoutes');
-    app.use('/api/messages', messageRoutes);
-    app.use('/api/files', fileRoutes);*/
-
-    // Error handling middleware
-   // const errorHandler = require('./middleware/errorHandler');
-   // app.use(errorHandler);
-
-    // Static files for uploads
-    app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Rotas públicas
 app.use('/webhook', webhookRouter);
@@ -96,6 +56,9 @@ app.use('/api/admin', authMiddleware, adminRouter);
 // Rota pública para admin login
 app.use('/auth', adminRouter);
 
+// Rota publica para atendente login
+app.use('/atendente', atendente);
+
 // Health check
 app.get('/health', async(req, res) => {
   res.json({
@@ -108,11 +71,9 @@ app.get('/health', async(req, res) => {
 
 // Ngrok
 const startNgrok = async (port: number) => {
-    //const url = await ngrok.connect({
     const listener = await ngrok.forward({
         addr: port,
         authtoken_from_env: true,
-        //domain: process.env.NGROK_SUBDOMAIN,
     });
     console.log(`✅ Ngrok URL: ${listener.url()}`);
     return listener.url();
@@ -121,8 +82,25 @@ const startNgrok = async (port: number) => {
 
 // Inicialização
 async function startServer() {
+  let retry = 0;
+  const maxRetries = 5;
+  while (retry < maxRetries) {
+    try {
+  //await migrate();
   await initializeDatabase();
   startReminderScheduler();
+
+  break; // Se a inicialização for bem-sucedida, saia do loop
+    } catch (err: any) {
+      console.error(`Erro ao inicializar o banco de dados (tentativa ${retry + 1}):`, err.message);
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Aguarda 2 segundos antes de tentar novamente
+      retry++;
+    }
+  }
+  if (retry === maxRetries) {
+    console.error('Falha ao inicializar o banco de dados após várias tentativas. Encerrando o servidor.');
+    process.exit(1);
+  }
   
   server.listen(PORT, () => {
     console.log('🚀 Servidor rodando na porta', PORT);
@@ -131,16 +109,16 @@ async function startServer() {
     console.log('🔐 Login em: /auth/login');
 
     // Configura o ngrok para expor o servidor local
-
   
   startNgrok(3333).catch((error: any) => {
     console.error('Failed to start ngrok:', error.message);
   });
+
   });
 }
 
 startServer().catch(console.error);
-} catch (err) {
+} catch (err: any) {
     console.error('Error starting server:', err);
     process.exit(1);
   }

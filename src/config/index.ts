@@ -1,10 +1,15 @@
-import OpenAI from "openai";
+//import OpenAI from "openai";
 
 const dotenv = require('dotenv');
 dotenv.config();
 
 export default {
-//module.exports = {
+  
+  jwtSecret: process.env.JWT_SECRET || 'Jtl1mA-Loty11NscguiarA@opneSource_Jwtf',
+  jwtRefreshSecret: process.env.JWT_SECRET_REFRESH || 'secret_refresh',
+  port: process.env.PORT || 3001,
+  timezone: process.env.TIMEZONE || 'America/Sao_Paulo',
+
   whatsApp: {
     admin: process.env.ADMIN_WHATSAPP_NUMBER,
     accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
@@ -13,11 +18,14 @@ export default {
     apiUrl: process.env.WHATSAPP_API_URL,
     url: process.env.WHATSAPP_API_URL
   },
-  twilio: {
-    accountSid: process.env.TWILIO_ACCOUNT_SID,
-    authToken: process.env.TWILIO_AUTH_TOKEN,
-    whatsappNumber: process.env.TWILIO_WHATSAPP_NUMBER
+
+  instagram: {
+    accessToken: process.env.INSTAGRAM_ACCESS_TOKEN,
+    businessId: process.env.INSTAGRAM_BUSINESS_ID,
+    apiUrl: process.env.INSTAGRAM_API_URL,
+    url: process.env.INSTAGRAM_URL
   },
+  
   openai: {
     apiKey: process.env.OPENAI_API_KEY
   },
@@ -28,22 +36,18 @@ export default {
     //model: process.env.OPENROUTE_MODEL
   },
 
-  instagram: {
-    accessToken: process.env.INSTAGRAM_ACCESS_TOKEN,
-    businessId: process.env.INSTAGRAM_BUSINESS_ID,
-    apiUrl: process.env.INSTAGRAM_API_URL,
-    url: process.env.INSTAGRAM_URL
-  },
-  jwtSecret: process.env.JWT_SECRET || 'Jtl1mA-Loty11NscguiarA@opneSource_Jwtf',
-  jwtRefreshSecret: process.env.JWT_SECRET_REFRESH || 'secret_refresh',
-  port: process.env.PORT || 3001,
-  timezone: process.env.TIMEZONE || 'America/Sao_Paulo'
 };
 
 /*export const client = new OpenAI({ 
   apiKey: process.env.OPENROUTE_API_KEY,
   baseURL: process.env.OPENROUTE_URL || 'https://openrouter.ai/api/v1'
 });*/
+
+/*twilio: {
+    accountSid: process.env.TWILIO_ACCOUNT_SID,
+    authToken: process.env.TWILIO_AUTH_TOKEN,
+    whatsappNumber: process.env.TWILIO_WHATSAPP_NUMBER
+  },*/
 
 // Lista de modelos gratuitos em ordem de preferência
  export const freeModeles = [

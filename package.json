@@ -4,8 +4,8 @@
   "description": "Backend API para agente de atendimento com WebSocket",
   "main": "./dist/app.js",
   "scripts": {
-    "start": "node src/app.ts",
     "build": "tsc -p .",
+    "start": "node src/app.ts",
     "dev": "ts-node-dev --respawn --transpile-only --ignore-watch node_modules src/app.ts",
     "test": "jest"
   },

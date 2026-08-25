@@ -16,6 +16,8 @@ atendente.post('/setup', async (req: Request, res: Response) => {
     
     const row = await db.all(`SELECT * FROM atendentes WHERE username = ?`, [username]);
     
+
+
     if (!row) {
       const result = await db.run(
         `INSERT INTO atendentes (name, username, phone, password, email) VALUES (?, ?, ?, ?, ?)`,

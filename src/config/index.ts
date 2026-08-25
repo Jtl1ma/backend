@@ -5,9 +5,9 @@ dotenv.config();
 
 export default {
   
-  jwtSecret: process.env.JWT_SECRET || 'Jtl1mA-Loty11NscguiarA@opneSource_Jwtf',
-  jwtRefreshSecret: process.env.JWT_SECRET_REFRESH || 'secret_refresh',
-  port: process.env.PORT || 3001,
+  jwtSecret: process.env.JWT_SECRET,
+  jwtRefreshSecret: process.env.JWT_SECRET_REFRESH,
+  port: process.env.PORT,
   timezone: process.env.TIMEZONE || 'America/Sao_Paulo',
 
   whatsApp: {
@@ -43,11 +43,6 @@ export default {
   baseURL: process.env.OPENROUTE_URL || 'https://openrouter.ai/api/v1'
 });*/
 
-/*twilio: {
-    accountSid: process.env.TWILIO_ACCOUNT_SID,
-    authToken: process.env.TWILIO_AUTH_TOKEN,
-    whatsappNumber: process.env.TWILIO_WHATSAPP_NUMBER
-  },*/
 
 // Lista de modelos gratuitos em ordem de preferência
  export const freeModeles = [

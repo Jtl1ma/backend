@@ -49,8 +49,10 @@ router.get('/stats', async (req: Request, res: Response) => {
 // Buscar ticket por ID
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    //const ticketId = parseInt(req.params.id);
-    const ticketId:any = req.params.id;
+    const ticketId = parseInt(req.params.id);
+    if (isNaN(ticketId)) {
+      return res.status(400).json({ error: 'ID do ticket deve ser um número' });
+    }
     const ticket = await getTicketById(ticketId);
 
     if (!ticket) {
@@ -88,8 +90,10 @@ router.post('/', async (req: Request, res: Response) => {
 // Atualizar ticket
 router.put('/:id', async (req: Request, res: Response) => {
   try {
-    //const ticketId = parseInt(req.params.id);
-    const ticketId:any = req.params.id;
+    const ticketId = parseInt(req.params.id);
+    if (isNaN(ticketId)) {
+      return res.status(400).json({ error: 'ID do ticket deve ser um número' });
+    }
     const updates = req.body;
     
     // Validar status

@@ -7,7 +7,7 @@ let db: Database;
 export async function initializeDatabase() {
   try {
   db = await open({
-    filename: path.resolve(__dirname, '..', '../whatsapp_agente.db'),
+    filename: path.resolve(__dirname, 'whatsapp_agente.db'),
     driver: sqlite3.Database
   });
 
@@ -68,9 +68,29 @@ export async function initializeDatabase() {
       email TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
-    
+
+    CREATE TABLE IF NOT EXISTS admins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      email TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
+  // Seed: criar admin padrão se não existir
+  const adminExists = await db.get('SELECT id FROM admins WHERE username = ?', ['admin']);
+  if (!adminExists) {
+    const bcrypt = await import('bcryptjs');
+    const hashedPassword = await bcrypt.default.hash('admin_712', 10);
+    await db.run(
+      'INSERT INTO admins (username, password, email) VALUES (?, ?, ?)',
+      ['admin', hashedPassword, 'admin@empresa.com']
+    );
+    console.log('✅ Admin padrão criado: admin / admin');
+  }
+
+  console.log('✅ Banco de dados inicializado com sucesso');
   return db;
   } catch (error: any) {
     console.error('Erro ao inicializar o banco de dados:', error.message);

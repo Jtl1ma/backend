@@ -14,29 +14,27 @@ router.post('/login', async (req: Request, res: Response) => {
     
     // Buscar admin no banco (você precisa criar uma tabela de admins)
     const db = getDatabase();
+    
     const admin = await db.get(
       'SELECT * FROM admins WHERE username = ?',
       [username]
     );
-    const atendente = await db.get(
-      'SELECT * FROM atendentes WHERE username = ?',
-      [username]
-    );
-
-    console.log('Dados:', admin);
+     
+    if (!admin) return res.status(401).json({ error: 'Credenciais inválidas' });
     
-    if (!admin || !atendente) {
-      return res.status(401).json({ error: 'Credenciais inválidas' });
-    }
-    
-    const validPassword = await bcrypt.compare(password, admin.password || atendente.password);
+        
+    const validPassword = await bcrypt.compare(password, admin.password);
     if (!validPassword) {
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
     
+    if (!config.jwtSecret) {
+      return res.status(500).json({ error: 'Configuração JWT inválida' });
+    }
+
     const token = jwt.sign(
-      { id: admin.id, username: admin.username, atendente: atendente.username },
-      config.jwtSecret || 'secret',
+      { id: admin.id, username: admin.username },
+      config.jwtSecret,
       { expiresIn: '24h' }
     );
     
@@ -48,13 +46,7 @@ router.post('/login', async (req: Request, res: Response) => {
         username: admin.username,
         email: admin.email
       },
-      atendente: {
-        id: atendente.id,
-        username: atendente.username,
-        name: atendente.name,
-        phone: atendente.phone,
-        email: atendente.email
-      }
+    
     });
   } catch (error) {
     console.error('Erro no login:', error);

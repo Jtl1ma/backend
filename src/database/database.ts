@@ -59,6 +59,7 @@ export async function initializeDatabase() {
       escalated_human INTEGER DEFAULT 0,
       average_response_time INTEGER DEFAULT 0
     );
+    
     CREATE TABLE IF NOT EXISTS atendentes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,

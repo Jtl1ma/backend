@@ -1,8 +1,8 @@
 import { getDatabase } from '../database/database';
 import { sendMessage } from './whatsappService';
-//import cron from 'node-cron';
-const cron = require('node-cron');
+import cron from 'node-cron';
 import moment from 'moment';
+
 
 export async function createReminder(waId: string, message: string, scheduledFor: Date) {
   const db = getDatabase();

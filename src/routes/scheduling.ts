@@ -5,7 +5,6 @@ import {
   getUpcomingSchedulings 
 } from '../services/schedulingService';
 import { sendMessage } from '../services/whatsappService';
-
 const router = Router();
 
 // Criar agendamento

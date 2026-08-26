@@ -202,6 +202,7 @@ router.get('/daily-report', async (req: Request, res: Response) => {
   }
 });
 
+
 // Análise de sentimento por período
 router.get('/sentiment-trend', async (req: Request, res: Response) => {
   try {

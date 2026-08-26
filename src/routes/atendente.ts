@@ -42,7 +42,6 @@ atendente.post('/login', async (req: Request, res: Response) => {
         email: row.email,
         phone: row.phone
       },
-    
     });
   } catch (error) {
     console.error('Erro no login:', error);

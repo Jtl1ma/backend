@@ -26,7 +26,7 @@ export async function createScheduling(scheduling: Scheduling) {
     `✅ *Agendamento confirmado!*\n\n` +
     `📅 Data: ${dateFormatted}\n` +
     `👤 Colaborador(a): ${scheduling.consultant_name}\n\n` +
-    `🔔 Você receberá um lembrete 24h antes.`
+    `🔔 Você receberá um lembrete 24h antes!`
   );
   
   return result.lastID;

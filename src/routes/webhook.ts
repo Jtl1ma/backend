@@ -3,8 +3,8 @@ import { processIncomingMessage, sendInteractiveMessage, sendMessage } from '../
 import { createTicket } from '../services/ticketService';
 import { isWeekend } from '../utils/dateUtils';
 import axios from 'axios';
-const router = Router();
 import config from '../config';
+const router = Router();
 
 
 // Webhook para verificação (Meta requer verificação)

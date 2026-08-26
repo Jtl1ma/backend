@@ -12,7 +12,7 @@ export interface NotificationEvent {
 export class NotificationService {
   private static instance: NotificationService;
   private io: SocketIOServer;
-  private db = getDatabase();
+  //private db = getDatabase();
 
   private constructor(io: SocketIOServer) {
     this.io = io;

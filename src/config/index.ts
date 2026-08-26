@@ -54,4 +54,3 @@ export default {
    "qwen/qwen3-next-80b-a3b-instruct:free",
    "qwen/qwen3.8-27b",
  ];
-  

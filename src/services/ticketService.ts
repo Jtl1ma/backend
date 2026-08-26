@@ -14,6 +14,7 @@ export interface Ticket {
 
 export async function createTicket(waId: string, subject: string, priority: string = 'medium') {
   const db = getDatabase();
+  
   const result = await db.run(
     `INSERT INTO tickets (wa_id, subject, status, priority) VALUES (?, ?, ?, ?)`,
     [waId, subject, 'open', priority]

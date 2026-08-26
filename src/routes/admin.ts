@@ -4,8 +4,8 @@ import { sendMessage } from '../services/whatsappService';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import config from '../config';
-
 const router = Router();
+
 
 // Login do admin
 router.post('/login', async (req: Request, res: Response) => {

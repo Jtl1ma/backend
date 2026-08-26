@@ -7,7 +7,6 @@ import {
 } from '../services/ticketService';
 import { sendMessage } from '../services/whatsappService';
 import { getDatabase } from '../database/database';
-
 const router = Router();
 
 // Listar todos os tickets abertos

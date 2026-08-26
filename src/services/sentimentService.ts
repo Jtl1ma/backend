@@ -7,7 +7,6 @@ export async function analyzeSentiment(text: string): Promise<Sentiment> {
   const prompt = `
     Analise o sentimento da seguinte mensagem e responda apenas com uma palavra:
     "positive", "neutral" ou "negative".
-
     Mensagem: "${text}"
   `;
 

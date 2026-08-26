@@ -90,13 +90,14 @@ async function startServer() {
         console.error('Failed to start ngrok:', error.message);
       });*/
     });
+
   } catch (err) {
     console.error('Error starting server:', err);
     server.close();
     process.exit(1);
   }
-}
 
+}
 startServer().catch(console.error);
 
 export default app;

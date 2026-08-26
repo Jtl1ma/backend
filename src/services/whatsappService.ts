@@ -48,6 +48,7 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
   return { responseText, sentiment };
 }
 
+
 export async function sendMessage(to: string, text: string) {
   const data = {
     messaging_product: 'whatsapp',

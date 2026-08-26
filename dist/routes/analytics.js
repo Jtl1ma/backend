@@ -156,7 +156,7 @@ router.get('/daily-report', async (req, res) => {
                 schedulings_created: 0
             });
         }
-        res.json(report);
+        res.json({ relatorio: report });
     }
     catch (error) {
         console.error('Erro ao buscar relatório diário:', error);

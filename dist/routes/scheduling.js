@@ -64,7 +64,7 @@ router.post('/:id/confirm', async (req, res) => {
             await (0, whatsappService_1.sendMessage)(scheduling.wa_id, `✅ *Agendamento confirmado!*\n\n` +
                 `📅 Data: ${new Date(scheduling.date).toLocaleDateString('pt-BR')}\n` +
                 `⏰ Horário: ${new Date(scheduling.date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n` +
-                `👤 Consultor(a): ${scheduling.consultant_name}\n\n` +
+                `👤 Colaborador(a): ${scheduling.consultant_name}\n\n` +
                 `🔔 Aguardamos você! Qualquer dúvida, estamos aqui. 💍`);
         }
         res.json({ success: true, message: 'Agendamento confirmado' });

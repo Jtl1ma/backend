@@ -8,7 +8,40 @@ const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const config_1 = __importDefault(require("../config"));
 const auth_1 = require("../middleware/auth");
+const database_1 = require("../database/database");
 const atendente = (0, express_1.Router)();
+atendente.post('/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const db = (0, database_1.getDatabase)();
+        const row = await db.get(`SELECT * FROM atendentes WHERE username = ?`, [username]);
+        if (!row)
+            return res.status(401).json({ error: 'Credenciais inválidas' });
+        const validPassword = await bcryptjs_1.default.compare(password, row.password);
+        if (!validPassword) {
+            return res.status(401).json({ error: 'Credenciais inválidas' });
+        }
+        if (!config_1.default.jwtSecret) {
+            return res.status(500).json({ error: 'Configuração JWT inválida' });
+        }
+        const token = jsonwebtoken_1.default.sign({ id: row.id, username: row.username }, config_1.default.jwtSecret, { expiresIn: '24h' });
+        res.json({
+            success: true,
+            token,
+            atendente: {
+                id: row.id,
+                name: row.name,
+                username: row.username,
+                email: row.email,
+                phone: row.phone
+            },
+        });
+    }
+    catch (error) {
+        console.error('Erro no login:', error);
+        res.status(500).json({ error: 'Erro ao fazer login' });
+    }
+});
 atendente.post('/setup', async (req, res) => {
     const db = require('../database/database').getDatabase();
     try {
@@ -17,11 +50,11 @@ atendente.post('/setup', async (req, res) => {
         const row = await db.all(`SELECT * FROM atendentes WHERE username = ?`, [username]);
         if (!row) {
             const result = await db.run(`INSERT INTO atendentes (name, username, phone, password, email) VALUES (?, ?, ?, ?, ?)`, [name, username, phone, hashedPassword, email]);
-            const agent = result.lastID;
+            const agent = result;
             if (agent) {
                 delete agent.password;
             }
-            const token = jsonwebtoken_1.default.sign({ id: agent.id }, config_1.default.jwtSecret, { expiresIn: '1h' });
+            const token = jsonwebtoken_1.default.sign({ id: agent.id }, config_1.default.jwtSecret, { expiresIn: '24h' });
             res.status(201).json({ message: 'Atendente criado com sucesso', token });
         }
         else {
@@ -44,11 +77,11 @@ atendente.get('/list', async (req, res) => {
         res.status(500).json({ message: 'Erro interno do servidor' });
     }
 });
-atendente.get('/get/:name', async (req, res) => {
+atendente.get('/get/:username', async (req, res) => {
     const db = require('../database/database').getDatabase();
-    const { name } = req.params;
+    const { username } = req.params;
     try {
-        const row = await db.get(`SELECT id, name, username, phone, email FROM atendentes WHERE name = ?`, [name]);
+        const row = await db.get(`SELECT id, name, username, phone, email FROM atendentes WHERE username = ?`, [username]);
         if (row) {
             res.status(200).json(row);
         }

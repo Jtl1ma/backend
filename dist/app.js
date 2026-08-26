@@ -16,7 +16,6 @@ const admin_1 = require("./routes/admin");
 const reminderService_1 = require("./services/reminderService");
 const auth_1 = require("./middleware/auth");
 const config_1 = __importDefault(require("./config"));
-const ngrok_1 = __importDefault(require("@ngrok/ngrok"));
 const socket_io_1 = require("socket.io");
 const http_1 = __importDefault(require("http"));
 const atendente_1 = __importDefault(require("./routes/atendente"));
@@ -65,14 +64,6 @@ async function startServer() {
             console.log('📱 Webhook disponível em: /webhook');
             console.log('📊 Dashboard em: /api/analytics/dashboard');
             console.log('🔐 Login em: /auth/login');
-            ngrok_1.default.forward({
-                addr: PORT,
-                authtoken_from_env: true,
-            }).then(listener => {
-                console.log(`✅ Ngrok URL: ${listener.url()}`);
-            }).catch(error => {
-                console.error('Failed to start ngrok:', error.message);
-            });
         });
     }
     catch (err) {

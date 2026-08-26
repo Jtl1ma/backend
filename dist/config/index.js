@@ -4,9 +4,9 @@ exports.freeModeles = void 0;
 const dotenv = require('dotenv');
 dotenv.config();
 exports.default = {
-    jwtSecret: process.env.JWT_SECRET || 'Jtl1mA-Loty11NscguiarA@opneSource_Jwtf',
-    jwtRefreshSecret: process.env.JWT_SECRET_REFRESH || 'secret_refresh',
-    port: process.env.PORT || 3001,
+    jwtSecret: process.env.JWT_SECRET || 'default-secret',
+    jwtRefreshSecret: process.env.JWT_SECRET_REFRESH,
+    port: process.env.PORT,
     timezone: process.env.TIMEZONE || 'America/Sao_Paulo',
     whatsApp: {
         admin: process.env.ADMIN_WHATSAPP_NUMBER,
@@ -38,5 +38,6 @@ exports.freeModeles = [
     "openai/gpt-oss-120b:free",
     "google/gemma-4-31b-it:free",
     "qwen/qwen3-next-80b-a3b-instruct:free",
+    "qwen/qwen3.8-27b",
 ];
 //# sourceMappingURL=index.js.map

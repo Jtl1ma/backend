@@ -41,7 +41,10 @@ router.get('/stats', async (req, res) => {
 });
 router.get('/:id', async (req, res) => {
     try {
-        const ticketId = req.params.id;
+        const ticketId = parseInt(String(req.params.id));
+        if (isNaN(ticketId)) {
+            return res.status(400).json({ error: 'ID do ticket deve ser um número' });
+        }
         const ticket = await (0, ticketService_1.getTicketById)(ticketId);
         if (!ticket) {
             return res.status(404).json({ error: 'Ticket não encontrado' });
@@ -73,7 +76,10 @@ router.post('/', async (req, res) => {
 });
 router.put('/:id', async (req, res) => {
     try {
-        const ticketId = req.params.id;
+        const ticketId = parseInt(String(req.params.id));
+        if (isNaN(ticketId)) {
+            return res.status(400).json({ error: 'ID do ticket deve ser um número' });
+        }
         const updates = req.body;
         const validStatus = ['open', 'in_progress', 'resolved', 'closed'];
         if (updates.status && !validStatus.includes(updates.status)) {

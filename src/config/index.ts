@@ -5,7 +5,7 @@ dotenv.config();
 
 export default {
   
-  jwtSecret: process.env.JWT_SECRET,
+  jwtSecret: process.env.JWT_SECRET || 'default-secret',
   jwtRefreshSecret: process.env.JWT_SECRET_REFRESH,
   port: process.env.PORT,
   timezone: process.env.TIMEZONE || 'America/Sao_Paulo',

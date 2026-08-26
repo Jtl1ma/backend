@@ -1,11 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NotificationService = void 0;
-const database_1 = require("../database/database");
 const whatsappService_1 = require("./whatsappService");
 class NotificationService {
     constructor(io) {
-        this.db = (0, database_1.getDatabase)();
         this.io = io;
         this.setupEventHandlers();
     }

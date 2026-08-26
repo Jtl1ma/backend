@@ -40,7 +40,6 @@ async function analyzeSentiment(text) {
     const prompt = `
     Analise o sentimento da seguinte mensagem e responda apenas com uma palavra:
     "positive", "neutral" ou "negative".
-
     Mensagem: "${text}"
   `;
     for (const model of config_1.freeModeles) {

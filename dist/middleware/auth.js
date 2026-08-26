@@ -13,7 +13,7 @@ function authMiddleware(req, res, next) {
         return res.status(401).json({ error: 'Token não fornecido' });
     }
     try {
-        const decoded = jsonwebtoken_1.default.verify(token, config_1.default.jwtSecret || 'secret');
+        const decoded = jsonwebtoken_1.default.verify(token, config_1.default.jwtSecret || " ");
         req.user = decoded;
         next();
     }

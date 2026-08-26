@@ -17,16 +17,16 @@ router.post('/login', async (req, res) => {
         const { username, password } = req.body;
         const db = (0, database_1.getDatabase)();
         const admin = await db.get('SELECT * FROM admins WHERE username = ?', [username]);
-        const atendente = await db.get('SELECT * FROM atendentes WHERE username = ?', [username]);
-        console.log('Dados:', admin);
-        if (!admin || !atendente) {
+        if (!admin)
             return res.status(401).json({ error: 'Credenciais inválidas' });
-        }
-        const validPassword = await bcryptjs_1.default.compare(password, admin.password || atendente.password);
+        const validPassword = await bcryptjs_1.default.compare(password, admin.password);
         if (!validPassword) {
             return res.status(401).json({ error: 'Credenciais inválidas' });
         }
-        const token = jsonwebtoken_1.default.sign({ id: admin.id, username: admin.username, atendente: atendente.username }, config_1.default.jwtSecret || 'secret', { expiresIn: '24h' });
+        if (!config_1.default.jwtSecret) {
+            return res.status(500).json({ error: 'Configuração JWT inválida' });
+        }
+        const token = jsonwebtoken_1.default.sign({ id: admin.id, username: admin.username }, config_1.default.jwtSecret, { expiresIn: '24h' });
         res.json({
             success: true,
             token,
@@ -35,13 +35,6 @@ router.post('/login', async (req, res) => {
                 username: admin.username,
                 email: admin.email
             },
-            atendente: {
-                id: atendente.id,
-                username: atendente.username,
-                name: atendente.name,
-                phone: atendente.phone,
-                email: atendente.email
-            }
         });
     }
     catch (error) {
@@ -124,7 +117,7 @@ router.get('/stats', async (req, res) => {
         (SELECT COUNT(*) FROM schedulings) as total_schedulings,
         (SELECT COUNT(*) FROM schedulings WHERE status = 'pending') as pending_schedulings
     `);
-        res.json(stats);
+        res.json({ stats: stats });
     }
     catch (error) {
         console.error('Erro ao buscar estatísticas do sistema:', error);

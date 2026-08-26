@@ -1,7 +1,7 @@
 declare const _default: {
     jwtSecret: string;
-    jwtRefreshSecret: string;
-    port: string | number;
+    jwtRefreshSecret: string | undefined;
+    port: string | undefined;
     timezone: string;
     whatsApp: {
         admin: string | undefined;

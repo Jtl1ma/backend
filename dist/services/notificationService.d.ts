@@ -6,7 +6,6 @@ export interface NotificationEvent {
 export declare class NotificationService {
     private static instance;
     private io;
-    private db;
     private constructor();
     static initialize(io: SocketIOServer): NotificationService;
     static getInstance(): NotificationService;

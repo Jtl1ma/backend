@@ -22,7 +22,7 @@ router.get('/posts', async (req, res) => {
             type: post.media_type,
             timestamp: post.timestamp
         }));
-        res.json(posts);
+        res.json({ mensagem: 'Posts vindo do Instagran: ', posts: posts });
     }
     catch (error) {
         console.error('Erro ao buscar posts do Instagram:', error);

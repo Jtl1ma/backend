@@ -9,9 +9,9 @@ const whatsappService_1 = require("../services/whatsappService");
 const ticketService_1 = require("../services/ticketService");
 const dateUtils_1 = require("../utils/dateUtils");
 const axios_1 = __importDefault(require("axios"));
+const config_1 = __importDefault(require("../config"));
 const router = (0, express_1.Router)();
 exports.webhookRouter = router;
-const config_1 = __importDefault(require("../config"));
 router.get('/', (req, res) => {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
@@ -110,7 +110,6 @@ async function fetchInstagramPosts() {
         limit: 5,
     };
     const response = await axios_1.default.get(url, { params });
-    console.log("Respostas: ", response.data.data);
     return response.data.data;
 }
 //# sourceMappingURL=webhook.js.map

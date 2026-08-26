@@ -55,7 +55,7 @@ async function generateAIResponse(message, sentiment, isWeekend, posts) {
       ${sentiment === 'negative' ? 'O cliente está insatisfeito. Seja empático e tente resolver o problema. OFEREÇA CONTATO COM HUMANO URGENTEMENTE.' : ''}
     
       ÚLTIMAS POSTAGENS DO INSTAGRAM (use quando pedirem fotos/inspirações):
-      ${postsText || 'Nenhuma postagem disponível no momento'}
+      ${postsText || 'Nenhuma postagem disponível no momento!'}
       Últimas postagens do Instagram:
       
       Regras importantes:

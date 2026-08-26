@@ -74,7 +74,7 @@ atendente.post('/setup', async (req: Request, res: Response) => {
     const token = jwt.sign(
         { id: agent.id },
          config.jwtSecret!, 
-         { expiresIn: '1h' }
+         { expiresIn: '24h' }
         );
 
     res.status(201).json({ message: 'Atendente criado com sucesso', token });
@@ -98,11 +98,11 @@ atendente.get('/list', async (req: Request, res: Response) => {
     }
 });
 
-atendente.get('/get/:name', async (req: Request, res: Response) => {
+atendente.get('/get/:username', async (req: Request, res: Response) => {
     const db = require('../database/database').getDatabase();
-    const { name } = req.params;
+    const { username } = req.params;
     try {
-        const row = await db.get(`SELECT id, name, username, phone, email FROM atendentes WHERE name = ?`, [name]);
+        const row = await db.get(`SELECT id, name, username, phone, email FROM atendentes WHERE username = ?`, [username]);
         if (row) {
             res.status(200).json(row);
         } else {

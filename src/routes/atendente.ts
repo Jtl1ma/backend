@@ -3,9 +3,52 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import config from '../config';
 import { authMiddleware } from '../middleware/auth';
+import { getDatabase } from '../database/database';
 
 const atendente = Router();
 
+// Login do admin
+atendente.post('/login', async (req: Request, res: Response) => {
+  try {
+    const { username, password } = req.body;
+    
+    // Buscar admin no banco (você precisa criar uma tabela de admins)
+    const db = getDatabase();
+    
+    const row = await db.get(`SELECT * FROM atendentes WHERE username = ?`, [username]);
+     
+    if (!row) return res.status(401).json({ error: 'Credenciais inválidas' });
+    
+        
+    const validPassword = await bcrypt.compare(password, row.password);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Credenciais inválidas' });
+    }
+    
+    if (!config.jwtSecret) {
+      return res.status(500).json({ error: 'Configuração JWT inválida' });
+    }
+
+    const token = jwt.sign({ id: row.id, username: row.username },
+      config.jwtSecret, { expiresIn: '24h' });
+    
+    res.json({
+      success: true,
+      token,
+      atendente: {
+        id: row.id,
+        name: row.name,
+        username: row.username,
+        email: row.email,
+        phone: row.phone
+      },
+    
+    });
+  } catch (error) {
+    console.error('Erro no login:', error);
+    res.status(500).json({ error: 'Erro ao fazer login' });
+  }
+});
 
 atendente.post('/setup', async (req: Request, res: Response) => {
     const db = require('../database/database').getDatabase();
@@ -24,12 +67,16 @@ atendente.post('/setup', async (req: Request, res: Response) => {
         [name, username, phone, hashedPassword, email]
       );
 
-      const agent = (result as any).lastID;
+      const agent = (result as any);
       if (agent) {
         delete agent.password; // Remove a senha do objeto antes de enviar a resposta
     }
     
-    const token = jwt.sign({ id: agent.id }, config.jwtSecret, { expiresIn: '1h' });
+    const token = jwt.sign(
+        { id: agent.id },
+         config.jwtSecret!, 
+         { expiresIn: '1h' }
+        );
 
     res.status(201).json({ message: 'Atendente criado com sucesso', token });
     } else {

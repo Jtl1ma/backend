@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
 import { processIncomingMessage, sendInteractiveMessage, sendMessage } from '../services/whatsappService';
-//import { createScheduling } from '../services/schedulingService';
 import { createTicket } from '../services/ticketService';
 import { isWeekend } from '../utils/dateUtils';
 import axios from 'axios';
@@ -127,9 +126,7 @@ async function handleInteractiveMessage(message: any) {
 }
 
 async function fetchInstagramPosts() {
- // const axios = require('axios');
- // const url = `https://graph.facebook.com/me/media?fields=id,caption,media_url,permalink&access_token=${process.env.INSTAGRAM_ACCESS_TOKEN}&limit=5`;
- const url = `
+  const url = `
     https://graph.facebook.com/${config.instagram.businessId}/media`;
       const params = {
         fields: 'id,caption,media_url,permalink,media_type',
@@ -138,8 +135,7 @@ async function fetchInstagramPosts() {
       };
 
       const response = await axios.get(url, { params });
-  //const response = await axios.get(url);
-  console.log("Respostas: ", response.data.data);
+   
   return response.data.data;
 }
 

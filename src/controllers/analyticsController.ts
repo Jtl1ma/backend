@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { getDatabase } from '../database/database';
 
+
+
 export class AnalyticsController {
   async getDashboardData(req: Request, res: Response) {
     const db = getDatabase();

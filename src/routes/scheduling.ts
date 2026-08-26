@@ -86,7 +86,7 @@ router.post('/:id/confirm', async (req: Request, res: Response) => {
         `✅ *Agendamento confirmado!*\n\n` +
         `📅 Data: ${new Date(scheduling.date).toLocaleDateString('pt-BR')}\n` +
         `⏰ Horário: ${new Date(scheduling.date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n` +
-        `👤 Consultor(a): ${scheduling.consultant_name}\n\n` +
+        `👤 Colaborador(a): ${scheduling.consultant_name}\n\n` +
         `🔔 Aguardamos você! Qualquer dúvida, estamos aqui. 💍`
       );
     }

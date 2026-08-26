@@ -1,6 +1,5 @@
 import { initializeDatabase } from './database';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 
 
 async function seed() {

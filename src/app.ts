@@ -15,7 +15,6 @@ import ngrok from '@ngrok/ngrok';
 import { Server } from 'socket.io';
 import http from 'http';
 import atendente from './routes/atendente';
-import path from 'path';
 const helmet = require('helmet');
 dotenv.config();
 
@@ -82,14 +81,14 @@ async function startServer() {
       console.log('🔐 Login em: /auth/login');
 
       // Configure ngrok to expose the local server
-      ngrok.forward({
+      /*ngrok.forward({
         addr: PORT,
         authtoken_from_env: true,
       }).then(listener => {
         console.log(`✅ Ngrok URL: ${listener.url()}`);
       }).catch(error => {
         console.error('Failed to start ngrok:', error.message);
-      });
+      });*/
     });
   } catch (err) {
     console.error('Error starting server:', err);

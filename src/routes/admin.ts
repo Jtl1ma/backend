@@ -158,7 +158,7 @@ router.get('/stats', async (req: Request, res: Response) => {
         (SELECT COUNT(*) FROM schedulings WHERE status = 'pending') as pending_schedulings
     `);
     
-    res.json(stats);
+    res.json({stats: stats});
   } catch (error) {
     console.error('Erro ao buscar estatísticas do sistema:', error);
     res.status(500).json({ error: 'Erro ao buscar estatísticas' });

@@ -195,7 +195,7 @@ router.get('/daily-report', async (req: Request, res: Response) => {
       });
     }
     
-    res.json(report);
+    res.json({relatorio: report });
   } catch (error) {
     console.error('Erro ao buscar relatório diário:', error);
     res.status(500).json({ error: 'Erro ao buscar relatório diário' });

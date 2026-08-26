@@ -52,5 +52,6 @@ export default {
    "openai/gpt-oss-120b:free",
    "google/gemma-4-31b-it:free",
    "qwen/qwen3-next-80b-a3b-instruct:free",
+   "qwen/qwen3.8-27b",
  ];
   

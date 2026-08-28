@@ -13,6 +13,7 @@ export interface WhatsAppMessage {
 }
 
 export async function processIncomingMessage(message: WhatsAppMessage) {
+  console.log('[DEBUG] processIncomingMessage iniciado:', message);
   const db = getDatabase();
   const { from, text } = message;
   
@@ -27,14 +28,20 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
 
   // 3. Verificar se é fim de semana
   const weekend = isWeekend();
-  
+  console.log('[DEBUG] Fim de semana:', weekend);
+
   // 4. Buscar posts do Instagram
+  console.log('[DEBUG] Iniciando fetchInstagramPosts...');
   const posts = await fetchInstagramPosts();
+  console.log('[DEBUG] Posts recebidos:', posts?.length || 0, posts);
   
   // 5. Gerar resposta com IA
+  console.log('[DEBUG] Iniciando generateAIResponse...');
   const responseText = await generateAIResponse(text, sentiment, weekend, posts);
-  
+  console.log('[DEBUG] Resposta IA gerada:', responseText);
+
   // 6. Enviar resposta
+  console.log('[DEBUG] Enviando mensagem para:', from, 'texto:', responseText);
   await sendMessage(from, responseText);
   
   // 7. Se não for fim de semana e sentimento negativo, abrir ticket
@@ -50,6 +57,7 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
 
 
 export async function sendMessage(to: string, text: string) {
+  console.log('[DEBUG] sendMessage - to:', to, 'url:', config.whatsApp.url);
   const data = {
     messaging_product: 'whatsapp',
     to: to,

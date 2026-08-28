@@ -72,8 +72,10 @@ export async function sendMessage(to: string, text: string) {
         'Content-Type': 'application/json'
       }
     });
-  } catch (error) {
-    console.error('Erro ao enviar mensagem:', error);
+  } catch (error: any) {
+    const msg = error?.response?.data || error?.message || error;
+    console.error('[DEBUG] Erro WhatsApp API - status:', error?.response?.status);
+    console.error('[DEBUG] Erro WhatsApp API - data:', JSON.stringify(msg));
     throw error;
   }
 }

@@ -1,7 +1,7 @@
 //import OpenAI from "openai";
 
 const dotenv = require('dotenv');
-dotenv.config();
+dotenv.config({expand: true});
 
 export default {
   
@@ -23,7 +23,7 @@ export default {
     accessToken: process.env.INSTAGRAM_ACCESS_TOKEN,
     businessId: process.env.INSTAGRAM_BUSINESS_ID,
     apiUrl: process.env.INSTAGRAM_API_URL,
-    url: process.env.INSTAGRAM_URL
+    
   },
   
   openai: {

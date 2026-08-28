@@ -95,8 +95,7 @@ export async function sendInteractiveMessage(to: string, text: string, buttons: 
 export async function fetchInstagramPosts() {
   try {
     //const url = `${config.instagram.apiUrl}`;
-    const url = `
-    https://graph.facebook.com/${config.instagram.businessId}/media`;
+    const url = `https://graph.instagram.com/v18.0/${config.instagram.businessId}/media`;
       const params = {
         fields: 'id,caption,media_url,permalink,media_type',
         access_token: config.instagram.accessToken,

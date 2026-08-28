@@ -15,7 +15,7 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
   }
   
   try {
-    const decoded = jwt.verify(token, config.jwtSecret || " ");
+    const decoded = jwt.verify(token, config.jwtSecret || "default-secret");
     req.user = decoded;
     next();
   } catch (error) {

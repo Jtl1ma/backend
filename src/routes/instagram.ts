@@ -9,22 +9,28 @@ router.get('/posts', async (req: Request, res: Response) => {
   try {
     const { limit = 10 } = req.query;
     
-    const url = `${config.instagram.url}&limit=${limit}`;
-    
-    const response = await axios.get(url);
+    const url = `https://graph.facebook.com/${config.instagram.businessId}/media`; 
+        
+    const response = await axios.get(url, {
+      params: {
+        fields: 'id,caption,media_url,permalink,media_type',
+        access_token: config.instagram.accessToken,
+        limit: limit
+      }
+    });
     
     const posts = response.data.data.map((post: any) => ({
       id: post.id,
-      caption: post.caption || 'Sem legenda',
+      caption: post.caption || 'Novas publicações no Instagran' || 'Sem legenda',
       mediaUrl: post.media_url,
       permalink: post.permalink,
       type: post.media_type,
-      timestamp: post.timestamp
+      //timestamp: post.timestamp
     }));
     
     res.json({ mensagem: 'Posts vindo do Instagran: ' , posts: posts });
-  } catch (error) {
-    console.error('Erro ao buscar posts do Instagram:', error);
+  } catch (error:any) {
+    console.error('Erro ao buscar posts do Instagram:', error.message);
     res.status(500).json({ error: 'Erro ao buscar posts do Instagram' });
   }
 });
@@ -34,9 +40,14 @@ router.get('/posts/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
-    const url = `https://graph.instagram.com/${id}?fields=id,caption,media_url,permalink,media_type,timestamp&access_token=${config.instagram.accessToken}`;
-    
-    const response = await axios.get(url);
+    const url = `https://graph.instagram.com/${id}`;
+    //?fields=id,caption,media_url,permalink,media_type,timestamp&access_token=${config.instagram.accessToken}
+    const response = await axios.get(url, {
+      params: {
+        fields: 'id,caption,media_url,permalink,media_type',
+        access_token: config.instagram.accessToken,
+      }
+    });
     res.json(response.data);
   } catch (error) {
     console.error('Erro ao buscar post:', error);

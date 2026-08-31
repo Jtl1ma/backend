@@ -109,7 +109,7 @@ export async function fetchInstagramPosts() {
   const maxRetries = 2;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const url = `https://graph.instagram.com/v26.0/${config.instagram.businessId}/media`;
+      const url = `https://graph.facebook.com/v26.0/${config.instagram.businessId}/media`;
       const params = {
         fields: 'id,caption,media_url,permalink,media_type',
         access_token: config.instagram.accessToken,

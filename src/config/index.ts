@@ -1,7 +1,7 @@
 //import OpenAI from "openai";
 
 const dotenv = require('dotenv');
-dotenv.config();
+dotenv.config({expand: true});
 
 export default {
   

@@ -67,6 +67,7 @@ export class NotificationService {
 
     try {
       await sendMessage(waId, message);
+      console.log('Notificar admin sobre novo ticket:', waId);
     } catch (error) {
       console.error('Erro ao notificar admin sobre novo ticket:', error);
     }

@@ -52,10 +52,10 @@ async function startServer() {
     app.use('/webhook', webhookRouter);
     app.use('/auth', adminRouter);
     app.use('/atendente', atendente);
+    app.use('/api/instagram', instagramRouter);
     app.use('/api/tickets', authMiddleware, ticketRouter);
     app.use('/api/scheduling', authMiddleware, schedulingRouter);
     app.use('/api/analytics', authMiddleware, analyticsRouter);
-    app.use('/api/instagram', authMiddleware, instagramRouter);
     app.use('/api/admin', authMiddleware, adminRouter);
 
     // Health check
@@ -81,14 +81,14 @@ async function startServer() {
       console.log('🔐 Login em: /auth/login');
 
       // Configure ngrok to expose the local server
-      /*ngrok.forward({
+      ngrok.forward({
         addr: PORT,
         authtoken_from_env: true,
       }).then(listener => {
         console.log(`✅ Ngrok URL: ${listener.url()}`);
       }).catch(error => {
         console.error('Failed to start ngrok:', error.message);
-      });*/
+      });
     });
 
   } catch (err) {
@@ -100,4 +100,4 @@ async function startServer() {
 }
 startServer().catch(console.error);
 
-export default app;
+export default app

@@ -5,9 +5,9 @@ dotenv.config();
 
 export default {
   
-  jwtSecret: process.env.JWT_SECRET || 'default-secret',
-  jwtRefreshSecret: process.env.JWT_SECRET_REFRESH,
-  port: process.env.PORT,
+  jwtSecret: process.env.JWT_SECRET || 'Jtl1mA-Loty11NscguiarA@opneSource_Jwtf',
+  jwtRefreshSecret: process.env.JWT_SECRET_REFRESH || 'secret_refresh',
+  port: process.env.PORT || 3001,
   timezone: process.env.TIMEZONE || 'America/Sao_Paulo',
 
   whatsApp: {
@@ -23,7 +23,7 @@ export default {
     accessToken: process.env.INSTAGRAM_ACCESS_TOKEN,
     businessId: process.env.INSTAGRAM_BUSINESS_ID,
     apiUrl: process.env.INSTAGRAM_API_URL,
-    url: process.env.INSTAGRAM_URL
+    
   },
   
   openai: {
@@ -43,6 +43,11 @@ export default {
   baseURL: process.env.OPENROUTE_URL || 'https://openrouter.ai/api/v1'
 });*/
 
+/*twilio: {
+    accountSid: process.env.TWILIO_ACCOUNT_SID,
+    authToken: process.env.TWILIO_AUTH_TOKEN,
+    whatsappNumber: process.env.TWILIO_WHATSAPP_NUMBER
+  },*/
 
 // Lista de modelos gratuitos em ordem de preferência
  export const freeModeles = [
@@ -52,5 +57,5 @@ export default {
    "openai/gpt-oss-120b:free",
    "google/gemma-4-31b-it:free",
    "qwen/qwen3-next-80b-a3b-instruct:free",
-   "qwen/qwen3.8-27b",
  ];
+  

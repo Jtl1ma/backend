@@ -3,8 +3,8 @@ import { getDatabase } from '../database/database';
 import { analyzeSentiment } from './sentimentService';
 import { generateAIResponse } from './aiService';
 import { isWeekend } from '../utils/dateUtils';
-//import config from '../config';
-const config = require('../config/index');
+import config from '../config';
+//const config = require('../config/index');
 
 
 
@@ -60,7 +60,12 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
 
 
 export async function sendMessage(to: string, text: string) {
-  console.log('[DEBUG] sendMessage - to:', to, 'url:', config.whatsApp.url);
+  const url = config.whatsApp.url || process.env.WHATSAPP_API_URL;
+  if (!url) {
+    console.error('[WhatsApp] config.whatsApp.url e WHATSAPP_API_URL estão indefinidos');
+    throw new Error('WhatsApp URL não configurada');
+  }
+  console.log('[DEBUG] sendMessage - to:', to, 'url:', url);
   const data = {
     messaging_product: 'whatsapp',
     to: to,
@@ -69,7 +74,7 @@ export async function sendMessage(to: string, text: string) {
   };
 
   try {
-    await axios.post(`${config.whatsApp.url}`, data, {
+    await axios.post(`${url}`, data, {
       headers: {
         'Authorization': `Bearer ${config.whatsApp.accessToken}`,
         'Content-Type': 'application/json'
@@ -84,6 +89,8 @@ export async function sendMessage(to: string, text: string) {
 }
 
 export async function sendInteractiveMessage(to: string, text: string, buttons: any[]) {
+  const url = config.whatsApp.url || process.env.WHATSAPP_API_URL;
+  if (!url) throw new Error('WhatsApp URL não configurada');
   const data = {
     messaging_product: 'whatsapp',
     to: to,
@@ -97,7 +104,7 @@ export async function sendInteractiveMessage(to: string, text: string, buttons: 
     }
   };
 
-  await axios.post(`${config.whatsApp.url}`, data, {
+  await axios.post(`${url}`, data, {
     headers: {
       'Authorization': `Bearer ${config.whatsApp.accessToken}`,
       'Content-Type': 'application/json'

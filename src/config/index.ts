@@ -15,7 +15,7 @@ export default {
     accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN,
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
-    apiUrl: process.env.WHATSAPP_API_URL,
+    //apiUrl: process.env.WHATSAPP_API_URL,
     url: process.env.WHATSAPP_API_URL
   },
 

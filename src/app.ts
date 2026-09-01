@@ -56,7 +56,7 @@ async function startServer() {
     app.use('/api/tickets', authMiddleware, ticketRouter);
     app.use('/api/scheduling', authMiddleware, schedulingRouter);
     app.use('/api/analytics', authMiddleware, analyticsRouter);
-    app.use('/api/instagram/', authMiddleware, instagramRouter);
+    //app.use('/api/instagram/', authMiddleware, instagramRouter);
     app.use('/api/admin', authMiddleware, adminRouter);
 
     // Health check

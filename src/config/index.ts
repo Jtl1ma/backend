@@ -51,6 +51,7 @@ export default {
 
 // Lista de modelos gratuitos em ordem de preferência
  export const freeModeles = [
+   "gpt-5.5",
    "openrouter/free",
    "gpt-5.4-mini",
    "nvidia/nemotron-3-ultra-550b-a55b:free",

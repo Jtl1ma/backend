@@ -82,14 +82,14 @@ async function startServer() {
       console.log('🔐 Login em: /auth/login');
 
       // Configure ngrok to expose the local server
-      ngrok.forward({
+      /*ngrok.forward({
         addr: PORT,
         authtoken_from_env: true,
       }).then(listener => {
         console.log(`✅ Ngrok URL: ${listener.url()}`);
       }).catch(error => {
         console.error('Failed to start ngrok:', error.message);
-      });
+      });*/
     });
 
   } catch (err) {

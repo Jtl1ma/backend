@@ -19,6 +19,7 @@ const config_1 = __importDefault(require("./config"));
 const socket_io_1 = require("socket.io");
 const http_1 = __importDefault(require("http"));
 const atendente_1 = __importDefault(require("./routes/atendente"));
+const whatsappService_1 = require("./services/whatsappService");
 const helmet = require('helmet');
 dotenv_1.default.config();
 const app = (0, express_1.default)();
@@ -36,6 +37,29 @@ async function startServer() {
             }
         });
         app.set('io', io);
+        io.on('connection', (socket) => {
+            console.log('⚡ Socket conectado:', socket.id);
+            socket.on('sendMessage', async (data) => {
+                try {
+                    const to = data?.to || data?.messageData?.to || data?.from || data?.messageData?.from;
+                    const text = data?.text || data?.messageData?.text || data?.messageData?.message;
+                    if (to && text) {
+                        await (0, whatsappService_1.sendMessage)(to, text);
+                        socket.emit('messageSent', { success: true, to, text });
+                    }
+                    else {
+                        console.warn('[Socket sendMessage] Dados incompletos:', data);
+                    }
+                }
+                catch (err) {
+                    console.error('[Socket sendMessage] Erro:', err);
+                    socket.emit('messageSent', { success: false, error: err.message });
+                }
+            });
+            socket.on('disconnect', () => {
+                console.log('🔌 Socket desconectado:', socket.id);
+            });
+        });
         app.use(helmet());
         app.use((0, cors_1.default)());
         app.use(express_1.default.json({ limit: '10kb' }));
@@ -43,10 +67,10 @@ async function startServer() {
         app.use('/webhook', webhook_1.webhookRouter);
         app.use('/auth', admin_1.adminRouter);
         app.use('/atendente', atendente_1.default);
+        app.use('/api/instagram', instagram_1.instagramRouter);
         app.use('/api/tickets', auth_1.authMiddleware, ticket_1.ticketRouter);
         app.use('/api/scheduling', auth_1.authMiddleware, scheduling_1.schedulingRouter);
         app.use('/api/analytics', auth_1.authMiddleware, analytics_1.analyticsRouter);
-        app.use('/api/instagram', auth_1.authMiddleware, instagram_1.instagramRouter);
         app.use('/api/admin', auth_1.authMiddleware, admin_1.adminRouter);
         app.get('/health', (req, res) => {
             res.json({

@@ -15,6 +15,7 @@ import ngrok from '@ngrok/ngrok';
 import { Server } from 'socket.io';
 import http from 'http';
 import atendente from './routes/atendente';
+import { sendMessage } from './services/whatsappService';
 const helmet = require('helmet');
 dotenv.config();
 
@@ -41,6 +42,32 @@ async function startServer() {
     });
 
     app.set('io', io);
+
+    // Socket.IO: receber mensagens do chat e enviar via WhatsApp
+    io.on('connection', (socket) => {
+      console.log('⚡ Socket conectado:', socket.id);
+
+      socket.on('sendMessage', async (data: { to?: string; text?: string; from?: string; messageData?: any }) => {
+        try {
+          const to = data?.to || data?.messageData?.to || data?.from || data?.messageData?.from;
+          const text = data?.text || data?.messageData?.text || data?.messageData?.message;
+          if (to && text) {
+            await sendMessage(to, text);
+            socket.emit('messageSent', { success: true, to, text });
+          } else {
+            console.warn('[Socket sendMessage] Dados incompletos:', data);
+          }
+        } catch (err) {
+          console.error('[Socket sendMessage] Erro:', err);
+          socket.emit('messageSent', { success: false, error: (err as Error).message });
+        }
+      });
+
+      socket.on('disconnect', () => {
+        console.log('🔌 Socket desconectado:', socket.id);
+      });
+    });
+
     app.use(helmet());
 
     // Middleware

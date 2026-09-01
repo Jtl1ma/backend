@@ -41,6 +41,7 @@ class NotificationService {
             `Prioridade: verifique no painel`;
         try {
             await (0, whatsappService_1.sendMessage)(waId, message);
+            console.log('Notificar admin sobre novo ticket:', waId);
         }
         catch (error) {
             console.error('Erro ao notificar admin sobre novo ticket:', error);

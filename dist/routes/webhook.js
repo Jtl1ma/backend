@@ -102,8 +102,7 @@ async function handleInteractiveMessage(message) {
     }
 }
 async function fetchInstagramPosts() {
-    const url = `
-    https://graph.facebook.com/${config_1.default.instagram.businessId}/media`;
+    const url = `https://graph.facebook.com/v26.0/${config_1.default.instagram.businessId}/media`;
     const params = {
         fields: 'id,caption,media_url,permalink,media_type',
         access_token: config_1.default.instagram.accessToken,

@@ -36,7 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateAIResponse = generateAIResponse;
 const config_1 = __importStar(require("../config"));
 async function generateAIResponse(message, sentiment, isWeekend, posts) {
-    const postsText = posts.map((p, i) => `${i + 1}. ${p.caption || 'Sem legenda'} - ${p.permalink}`).join('\n');
+    const postsText = posts.map((p, i) => `${i + 1}. ${p.caption || 'Novas publicações no Instagran' || 'Sem legenda'} - ${p.permalink}`).join('\n');
     const systemPrompt = `
       Você é a "Debysinha", assistente virtual especializada em decoração e ornamentações de festas.
       Características:
@@ -48,7 +48,7 @@ async function generateAIResponse(message, sentiment, isWeekend, posts) {
   
       CONTEXTO DE HORÁRIO:    
       ${isWeekend ?
-        'ATENÇÃO: É FIM DE SEMANA! Nossos atendentes humanos não estão trabalhando. Você deve ser extremamente acolhedor, resolver o máximo de dúvidas e informar que os atendentes humanos retornam na segunda-feira.' :
+        'ATENÇÃO: É FIM DE SEMANA! Nossos atendentes humanos estão trabalhando nas montagens das festas. Você deve ser extremamente acolhedora, resolver o máximo de dúvidas e informar que os atendentes humanos retornam na segunda-feira.' :
         'Hoje é dia útil. Você pode oferecer a opção de falar com um atendente humano.'}
     
       Sentimento do cliente: ${sentiment}
@@ -61,14 +61,14 @@ async function generateAIResponse(message, sentiment, isWeekend, posts) {
       Regras importantes:
       - Se perguntar sobre fotos de decoração, mencione as postagens acima
       - Se pedirem fotos, ofereça os links do Instagram acima
-      - Para agendamentos, pergunte a data e horário preferidos
-      - Se for orçamento simples, peça nome, data e tamanho da ornamentação
+      - Para agendamentos, pergunte a data e horário preferidos para falar com a Debora Pimentel
+      - Se for orçamento simples, peça nome, tema e data da ornamentação
       - Nunca prometa o que não pode cumprir
       - Nunca diga que não pode ajudar - sempre ofereça uma alternativa
       - Seja profissional e caloroso(a)
       - Use emojis adequados relacionados a decorações de festa (💍, 💒, 🌸, 🕯️, 🥂)
-      - Respostas curtas e objetivas (máximo 3 parágrafos)
-      - Se for fim de semana, informe que o time humano retorna na segunda
+      - Respostas curtas e objetivas (máximo 2 parágrafos)
+      - Se for fim de semana, informe que o time humano retorna na segunda e ofereça falar com um dos atendentes (Lorena, Suellem, Vitória, Rodrigo ou a Própria Debora Pimentel)
     `;
     for (let model of config_1.freeModeles) {
         try {
@@ -94,10 +94,10 @@ async function generateAIResponse(message, sentiment, isWeekend, posts) {
             }
             const data = await response.json();
             console.log(`Resposta de ${model}:`, data.choices[0].message.content);
-            return data.choices[0].message.content;
+            return data.choices[0].message.content || 'Desculpe, não consegui processar sua mensagem.';
         }
         catch (error) {
-            console.warn(`Falha com ${model}, tentando próximo...`, error.message);
+            console.warn(`Falha com o modelo ${model}, tentando próximo...`, error.message);
         }
     }
     throw new Error("Nenhum modelo gratuito respondeu corretamente.");

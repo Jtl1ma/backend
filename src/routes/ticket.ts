@@ -1,11 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { 
-  createTicket, 
-  updateTicket, 
-  getTicketById, 
-  getOpenTickets 
+import {
+  createTicket,
+  updateTicket,
+  getTicketById,
+  getOpenTickets
 } from '../services/ticketService';
 import { sendMessage } from '../services/whatsappService';
+import { notifyHumanAttendant, ATTENDANTS } from '../services/attendantService';
 import { getDatabase } from '../database/database';
 const router = Router();
 
@@ -142,6 +143,66 @@ router.post('/:id/resolve', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Erro ao resolver ticket:', error);
     res.status(500).json({ error: 'Erro ao resolver ticket' });
+  }
+});
+
+// Escalar para atendente humano (escolhido pelo cliente ou todos)
+router.post('/escalate', async (req: Request, res: Response) => {
+  try {
+    const { target = 'all', message, conversationId, ticketId } = req.body;
+    const io = req.app.get('io');
+
+    // Se o cliente escolher, pode ser nome ou id
+    const validTargets = ['all', ...ATTENDANTS.map(a => a.id), ...ATTENDANTS.map(a => a.name.toLowerCase())];
+
+    if (target !== 'all' && !validTargets.includes(target.toLowerCase())) {
+      return res.status(400).json({
+        error: `Atendente inválido. Opções válidas: "all" (todos), ou: ${ATTENDANTS.map(a => a.name).join(', ')}`
+      });
+    }
+
+    const result = await notifyHumanAttendant({
+      target: target.toLowerCase() === 'all' ? 'all' : target,
+      message: message || 'Cliente pediu atendimento humano',
+      conversationId,
+      sendWhatsApp: true,
+      emitSocket: true,
+      io
+    });
+
+    // Se tiver ticketId, atualizar status para in_progress
+    if (ticketId) {
+      try {
+        await updateTicket(ticketId, { assigned_to: target === 'all' ? 'todos' : target, status: 'in_progress' });
+      } catch (e) {
+        console.warn('Erro ao atualizar ticket no escalonamento:', e);
+      }
+    }
+
+    res.json({
+      success: true,
+      mode: result.mode,
+      message: result.mode === 'all' ? `Notificado todos (${ATTENDANTS.length}) atendentes` : `Notificado ${result.name}`,
+      details: result
+    });
+  } catch (error: any) {
+    console.error('Erro ao escalonar atendimento:', error);
+    res.status(500).json({ error: error.message || 'Erro ao notificar atendente' });
+  }
+});
+
+// Listar atendentes disponíveis
+router.get('/attendants', async (req: Request, res: Response) => {
+  try {
+    res.json({
+      attendants: ATTENDANTS.map(a => ({
+        id: a.id,
+        name: a.name,
+        whatsapp: a.whatsapp
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Erro ao buscar atendentes' });
   }
 });
 

@@ -49,6 +49,22 @@ async function initializeDatabase() {
             driver: sqlite3_1.default.Database
         });
         await db.exec(`
+    CREATE TABLE IF NOT EXISTS analytics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date DATE NOT NULL UNIQUE,
+      total_conversations INTEGER DEFAULT 0,
+      resolved_automated INTEGER DEFAULT 0,
+      escalated_human INTEGER DEFAULT 0,
+      average_response_time INTEGER DEFAULT 0
+    );
+  `);
+        try {
+            await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_date ON analytics(date)');
+        }
+        catch (e) {
+            console.warn('[DB] Analytics index já existe ou erro:', e?.message || e);
+        }
+        await db.exec(`
     CREATE TABLE IF NOT EXISTS conversations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       wa_id TEXT NOT NULL,
@@ -88,15 +104,6 @@ async function initializeDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS analytics (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date DATE NOT NULL,
-      total_conversations INTEGER DEFAULT 0,
-      resolved_automated INTEGER DEFAULT 0,
-      escalated_human INTEGER DEFAULT 0,
-      average_response_time INTEGER DEFAULT 0
-    );
-    
     CREATE TABLE IF NOT EXISTS atendentes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,

@@ -1,21 +1,19 @@
 declare const _default: {
     jwtSecret: string;
-    jwtRefreshSecret: string | undefined;
-    port: string | undefined;
+    jwtRefreshSecret: string;
+    port: string | number;
     timezone: string;
     whatsApp: {
         admin: string | undefined;
         accessToken: string | undefined;
         verifyToken: string | undefined;
         phoneNumberId: string | undefined;
-        apiUrl: string | undefined;
         url: string | undefined;
     };
     instagram: {
         accessToken: string | undefined;
         businessId: string | undefined;
         apiUrl: string | undefined;
-        url: string | undefined;
     };
     openai: {
         apiKey: string | undefined;

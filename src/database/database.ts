@@ -88,6 +88,13 @@ export async function initializeDatabase() {
       is_admin BOOLEAN DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS contacts (
+      wa_id TEXT PRIMARY KEY,
+      name TEXT,
+      phone TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Seed: criar admin padrão se não existir

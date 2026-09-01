@@ -17,6 +17,7 @@ async function processIncomingMessage(message) {
     console.log('[DEBUG] processIncomingMessage iniciado:', message);
     const db = (0, database_1.getDatabase)();
     const { from, text } = message;
+    await db.run('INSERT OR REPLACE INTO contacts (wa_id, name, phone, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)', [from, message.contactName || null, from]);
     const sentiment = await (0, sentimentService_1.analyzeSentiment)(text);
     await db.run('INSERT INTO conversations (wa_id, message, sentiment, is_weekend) VALUES (?, ?, ?, ?)', [from, text, sentiment, (0, dateUtils_1.isWeekend)() ? 1 : 0]);
     const weekend = (0, dateUtils_1.isWeekend)();
@@ -25,7 +26,7 @@ async function processIncomingMessage(message) {
     const posts = await fetchInstagramPosts();
     console.log('[DEBUG] Posts recebidos:', posts?.length || 0, posts);
     console.log('[DEBUG] Iniciando generateAIResponse...');
-    const responseText = await (0, aiService_1.generateAIResponse)(text, sentiment, weekend, posts);
+    const responseText = await (0, aiService_1.generateAIResponse)(text, sentiment, weekend, posts, message.contactName);
     console.log('[DEBUG] Resposta IA gerada:', responseText);
     console.log('[DEBUG] Enviando mensagem para:', from, 'texto:', responseText);
     await sendMessage(from, responseText);

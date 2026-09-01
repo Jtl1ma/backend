@@ -55,10 +55,10 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     
     // Últimas conversas (para feed)
     const recentConversations = await db.all(`
-      SELECT wa_id, message, sentiment, created_at
-      FROM conversations
-      ORDER BY created_at DESC
-      LIMIT 10
+      SELECT c.wa_id, c.message, c.sentiment, c.created_at, co.name as clientName
+      FROM conversations c
+      LEFT JOIN contacts co ON c.wa_id = co.wa_id
+      ORDER BY c.created_at DESC LIMIT 10
     `);
     
     res.json({

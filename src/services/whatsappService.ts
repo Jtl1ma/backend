@@ -12,12 +12,19 @@ export interface WhatsAppMessage {
   from: string;
   text: string;
   timestamp: string;
+  contactName: string;
 }
 
 export async function processIncomingMessage(message: WhatsAppMessage) {
   console.log('[DEBUG] processIncomingMessage iniciado:', message);
   const db = getDatabase();
   const { from, text } = message;
+
+  // Salvar ou atualizar contato
+  await db.run(
+    'INSERT OR REPLACE INTO contacts (wa_id, name, phone, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+    [from, message.contactName || null, from]
+  );
   
   // 1. Analisar sentimento
   const sentiment = await analyzeSentiment(text);
@@ -39,7 +46,7 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
   
   // 5. Gerar resposta com IA
   console.log('[DEBUG] Iniciando generateAIResponse...');
-  const responseText = await generateAIResponse(text, sentiment, weekend, posts);
+  const responseText = await generateAIResponse(text, sentiment, weekend, posts, message.contactName);
   console.log('[DEBUG] Resposta IA gerada:', responseText);
 
   // 6. Enviar resposta

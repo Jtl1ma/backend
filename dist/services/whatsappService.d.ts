@@ -2,6 +2,7 @@ export interface WhatsAppMessage {
     from: string;
     text: string;
     timestamp: string;
+    contactName: string;
 }
 export declare function processIncomingMessage(message: WhatsAppMessage): Promise<{
     responseText: string;

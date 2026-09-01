@@ -33,10 +33,13 @@ router.post('/', async (req, res) => {
                     const waId = message.from;
                     const text = message.text.body;
                     const timestamp = message.timestamp;
+                    const contacts = body.entry[0].changes[0].value.contacts;
+                    const contactName = contacts?.[0]?.profile?.name || 'Cliente';
                     await (0, whatsappService_1.processIncomingMessage)({
                         from: waId,
                         text: text,
-                        timestamp: timestamp
+                        timestamp: timestamp,
+                        contactName: contactName,
                     });
                 }
                 if (message.type === 'interactive') {

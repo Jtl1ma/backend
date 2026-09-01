@@ -4,6 +4,7 @@ exports.ticketRouter = void 0;
 const express_1 = require("express");
 const ticketService_1 = require("../services/ticketService");
 const whatsappService_1 = require("../services/whatsappService");
+const attendantService_1 = require("../services/attendantService");
 const database_1 = require("../database/database");
 const router = (0, express_1.Router)();
 exports.ticketRouter = router;
@@ -37,6 +38,20 @@ router.get('/stats', async (req, res) => {
     catch (error) {
         console.error('Erro ao buscar estatísticas:', error);
         res.status(500).json({ error: 'Erro ao buscar estatísticas' });
+    }
+});
+router.get('/attendants', async (req, res) => {
+    try {
+        res.json({
+            attendants: attendantService_1.ATTENDANTS.map(a => ({
+                id: a.id,
+                name: a.name,
+                whatsapp: a.whatsapp
+            }))
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Erro ao buscar atendentes' });
     }
 });
 router.get('/:id', async (req, res) => {
@@ -114,6 +129,44 @@ router.post('/:id/resolve', async (req, res) => {
     catch (error) {
         console.error('Erro ao resolver ticket:', error);
         res.status(500).json({ error: 'Erro ao resolver ticket' });
+    }
+});
+router.post('/escalate', async (req, res) => {
+    try {
+        const { target = 'all', message, conversationId, ticketId } = req.body;
+        const io = req.app.get('io');
+        const validTargets = ['all', ...attendantService_1.ATTENDANTS.map(a => a.id), ...attendantService_1.ATTENDANTS.map(a => a.name.toLowerCase())];
+        if (target !== 'all' && !validTargets.includes(target.toLowerCase())) {
+            return res.status(400).json({
+                error: `Atendente inválido. Opções válidas: "all" (todos), ou: ${attendantService_1.ATTENDANTS.map(a => a.name).join(', ')}`
+            });
+        }
+        const result = await (0, attendantService_1.notifyHumanAttendant)({
+            target: target.toLowerCase() === 'all' ? 'all' : target,
+            message: message || 'Cliente pediu atendimento humano',
+            conversationId,
+            sendWhatsApp: true,
+            emitSocket: true,
+            io
+        });
+        if (ticketId) {
+            try {
+                await (0, ticketService_1.updateTicket)(ticketId, { assigned_to: target === 'all' ? 'todos' : target, status: 'in_progress' });
+            }
+            catch (e) {
+                console.warn('Erro ao atualizar ticket no escalonamento:', e);
+            }
+        }
+        res.json({
+            success: true,
+            mode: result.mode,
+            message: result.mode === 'all' ? `Notificado todos (${attendantService_1.ATTENDANTS.length}) atendentes` : `Notificado ${result.name}`,
+            details: result
+        });
+    }
+    catch (error) {
+        console.error('Erro ao escalonar atendimento:', error);
+        res.status(500).json({ error: error.message || 'Erro ao notificar atendente' });
     }
 });
 //# sourceMappingURL=ticket.js.map

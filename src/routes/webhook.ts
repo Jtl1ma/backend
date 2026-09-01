@@ -126,16 +126,15 @@ async function handleInteractiveMessage(message: any) {
 }
 
 async function fetchInstagramPosts() {
-  const url = `
-    https://graph.facebook.com/${config.instagram.businessId}/media`;
-      const params = {
-        fields: 'id,caption,media_url,permalink,media_type',
-        access_token: config.instagram.accessToken,
-        limit: 5,
-      };
+  const url = `https://graph.facebook.com/v26.0/${config.instagram.businessId}/media`;
+  const params = {
+    fields: 'id,caption,media_url,permalink,media_type',
+    access_token: config.instagram.accessToken,
+    limit: 5,
+  };
 
-      const response = await axios.get(url, { params });
-   
+  const response = await axios.get(url, { params });
+
   return response.data.data;
 }
 

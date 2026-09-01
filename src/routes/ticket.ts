@@ -46,6 +46,21 @@ router.get('/stats', async (req: Request, res: Response) => {
   }
 });
 
+// Listar atendentes disponíveis (DEVE vir antes de /:id)
+router.get('/attendants', async (req: Request, res: Response) => {
+  try {
+    res.json({
+      attendants: ATTENDANTS.map(a => ({
+        id: a.id,
+        name: a.name,
+        whatsapp: a.whatsapp
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Erro ao buscar atendentes' });
+  }
+});
+
 // Buscar ticket por ID
 router.get('/:id', async (req: Request, res: Response) => {
   try {
@@ -188,21 +203,6 @@ router.post('/escalate', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Erro ao escalonar atendimento:', error);
     res.status(500).json({ error: error.message || 'Erro ao notificar atendente' });
-  }
-});
-
-// Listar atendentes disponíveis
-router.get('/attendants', async (req: Request, res: Response) => {
-  try {
-    res.json({
-      attendants: ATTENDANTS.map(a => ({
-        id: a.id,
-        name: a.name,
-        whatsapp: a.whatsapp
-      }))
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Erro ao buscar atendentes' });
   }
 });
 

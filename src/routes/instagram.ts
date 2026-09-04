@@ -43,11 +43,11 @@ router.get('/posts', async (req: Request, res: Response) => {
       id: post.id,
       caption: post.caption || 'Novas publicações no Instagram',
       mediaUrl: post.media_url,
+      mediaType: post.media_type,
       permalink: post.permalink,
-      type: post.media_type
+      timestamp: post.timestamp || ''
     }));
-    console.log('Postagens: ', posts);
-    res.json({ mensagem: 'Posts vindo do Instagram:', posts });
+    res.json(posts);
   } catch (error: any) {
     const msg = error?.response?.data?.error?.message || error?.message;
     console.error('Erro ao buscar posts do Instagram:', msg, config.instagram.accessToken);
@@ -66,7 +66,7 @@ router.get('/posts/:id', async (req: Request, res: Response) => {
         access_token: config.instagram.accessToken
       }
     });
-    res.json(data);
+    res.json(data.data);
   } catch (error: any) {
     const msg = error?.response?.data?.error?.message || error?.message;
     console.error('Erro ao buscar post:', msg);

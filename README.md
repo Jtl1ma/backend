@@ -56,7 +56,6 @@ src/
 - `INSTAGRAM_ACCESS_TOKEN`: Token de acesso do Instagram Graph API
 - `INSTAGRAM_BUSINESS_ID`: ID da conta de negócios do Instagram
 - `INSTAGRAM_API_URL`: URL para buscar posts
-- `INSTAGRAM_URL`: URL para formatar posts
 
 ### OpenAI / OpenRouter
 - `OPENAI_API_KEY`: Chave da API OpenAI

@@ -30,7 +30,7 @@ async function axiosWithRetry(url: string, options: any, maxRetries = 2): Promis
 router.get('/posts', async (req: Request, res: Response) => {
   try {
     const { limit = 3 } = req.query;
-    const url = `${config.instagram.apiUrl}${config.instagram.businessId}/media`;
+    const url = `${config.instagram.apiUrl}/${config.instagram.businessId}/media`;
     const data = await axiosWithRetry(url, {
       params: {
         fields: 'id,caption,media_url,permalink,media_type',

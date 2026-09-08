@@ -35,6 +35,10 @@ export default {
     openUrl: process.env.URL_OPENROUTE,
     //model: process.env.OPENROUTE_MODEL
   },
+  
+  djdecor: {
+    baseUrl: process.env.DJDECOR_URL
+  }
 
 };
 

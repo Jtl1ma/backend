@@ -1,6 +1,7 @@
 import config from '../config';
 import { getDatabase } from '../database/database';
 import { sendMessage } from './whatsappService';
+import { notifyHumanAttendant } from './attendantService';
 
 export interface Ticket {
   id?: number;

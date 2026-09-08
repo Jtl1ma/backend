@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { processIncomingMessage, sendInteractiveMessage, sendMessage } from '../services/whatsappService';
 import { createTicket } from '../services/ticketService';
+import { notifyHumanAttendant } from '../services/attendantService';
 import { isWeekend } from '../utils/dateUtils';
 import axios from 'axios';
 import config from '../config';
@@ -126,6 +127,15 @@ async function handleInteractiveMessage(message: any) {
   if (buttonId === 'open_ticket') {
     await sendMessage(waId, '🆘 Entendi que você precisa de ajuda especializada. Vou abrir um ticket para atendimento humano. Em breve um consultor entrará em contato.');
     await createTicket(waId, 'Ticket aberto via botão de ajuda', 'high');
+    // Notificar todos os atendentes humanos via WhatsApp
+    await notifyHumanAttendant({
+      target: 'all',
+      message: 'Cliente solicitou falar com atendente humano',
+      conversationId: waId,
+      sendWhatsApp: true,
+    }).catch((err) => {
+      console.error('Falha ao notificar atendentes humanos:', err.message);
+    });
   }
 }
 

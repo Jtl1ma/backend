@@ -2,10 +2,44 @@ import axios from 'axios';
 import { getDatabase } from '../database/database';
 import { analyzeSentiment } from './sentimentService';
 import { generateAIResponse } from './aiService';
+import { notifyHumanAttendant, ATTENDANTS } from './attendantService';
 import { isWeekend } from '../utils/dateUtils';
+import { djDecorClient } from '../integrations/djDecorClient';
 import config from '../config';
 //const config = require('../config/index');
 
+/**
+ * Detecta se a mensagem menciona um atendente específico.
+ * Retorna o ID do atendente se encontrado, ou null se mencionar 'todos'/'qualquer um'.
+ */
+function detectAttendantMention(text: string): string | 'all' | null {
+  const lower = text.toLowerCase();
+
+  // Mapeia termos que o cliente pode usar
+  const namePatterns: Record<string, string> = {
+    'debora': 'debora',
+    'débora': 'debora',
+    'lorena': 'lorena',
+    'suellen': 'suellen',
+    'suélem': 'suellen',
+    'rodrigo': 'rodrigo',
+    'vitoria': 'vitoria',
+    'vitória': 'vitoria',
+  };
+
+  // Se cliente quer falar com "qualquer um" ou "qualquer pessoa"
+  if (/\b(todos?|qualquer|qualquer um|qualquer pessoa|qualquer.atendente)\b/i.test(lower)) {
+    return 'all';
+  }
+
+  for (const [term, id] of Object.entries(namePatterns)) {
+    if (lower.includes(term)) {
+      return id;
+    }
+  }
+
+  return null;
+}
 
 
 export interface WhatsAppMessage {
@@ -52,16 +86,46 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
   // 6. Enviar resposta
   console.log('[DEBUG] Enviando mensagem para:', from, 'texto:', responseText);
   await sendMessage(from, responseText);
-  
-  // 7. Se não for fim de semana e sentimento negativo, abrir ticket
+
+  // 6b. Detectar menção a atendente específico na mensagem
+  const mentionedAttendant = detectAttendantMention(text);
+  if (mentionedAttendant) {
+    await createTicket(from, `Solicitou falar com atendente específico: ${mentionedAttendant}. Mensagem: ${text}`);
+    await notifyHumanAttendant({
+      target: mentionedAttendant,
+      message: `Cliente solicitou falar com ${mentionedAttendant}: "${text}"`,
+      conversationId: from,
+      sendWhatsApp: true,
+    }).catch((err) => console.error('Falha notificar atendente específico:', err.message));
+  }
+
+  // 7. Se não for fim de semana e sentimento negativo, abrir ticket e notificar atendentes
   if (!weekend && sentiment === 'negative') {
-    // notificar atendente humano
     await createTicket(from, text);
+    await notifyHumanAttendant({
+      target: 'all',
+      message: `Sentimento negativo detectado: ${text}`,
+      conversationId: from,
+      sendWhatsApp: true,
+    }).catch((err) => console.error('Falha notificar atendentes (sentimento negativo):', err.message));
   }
   
   // 8. Atualizar analytics
   await updateAnalytics(from, weekend);
-  
+
+  // 9. Integração com dj-decor: detectar intenção de agendamento
+  try {
+    const lowerText = text.toLowerCase();
+    const hasScheduleIntent = /\b(quero agendar|agendar|reservar|marcar|festa|evento|aniversário|casamento)\b/i.test(lowerText);
+    if (hasScheduleIntent) {
+      const disponivel = await djDecorClient.getDisponibilidade();
+      const respostaAgenda = `📅 Agendamento solicitado. Datas disponíveis: ${disponivel.data?.map((d: any) => d.data).join(', ') || 'verificar com atendente'}. Deseja que eu reserve uma dessas datas?`;
+      await sendMessage(from, respostaAgenda);
+    }
+  } catch (e: any) {
+    console.error('Falha ao consultar disponibilidade no dj-decor:', e.message);
+  }
+
   return { responseText, sentiment };
 }
 

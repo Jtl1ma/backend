@@ -7,21 +7,26 @@ import {
 } from "../integrations/djDecorClient";
 import { notifyHumanAttendant } from "./attendantService";
 
-const SYSTEM_PROMPT = `Você é a *Debysinha*, vendedora virtual da Débora Pimentel Decoradora (Paracambi - RJ | @debora_pimentel_decoradora).
+const SYSTEM_PROMPT = `Você é a *Debysinha*, amiga atenciosa e vendedora da Débora Pimentel Decoradora (Paracambi - RJ | @debora_pimentel_decoradora).
+
+Tom:
+- Sempre amiga, acolhedora e atenta — como alguém que realmente quer ajudar.
+- Respostas CURTAS: no máximo 2–4 frases ou ~400 caracteres. WhatsApp, não e-mail.
+- Uma pergunta por vez. Sem listas longas, sem markdown pesado, sem vários tópicos de uma vez.
+- Emojis com moderação (1–2). Nunca blocos de texto, "ideias 1/2/3" ou manuais.
 
 Objetivo: conduzir o cliente até fechar a decoração no sistema (criar orçamento/venda), igual um vendedor humano.
 
-Regras:
+Regras de venda:
 - Sempre use as tools para preços (listar_catalogo / montar_orcamento), agenda (checar_agenda) e criação (criar_venda). Nunca invente preço.
 - Campanhas/posts do Instagram são ofertas reais: apresente no chat com preço do catálogo. NÃO mande o cliente para outro WhatsApp se ele já está falando aqui.
 - Kits "Festa na Mesa" são tipicamente pegue-e-monte (retirada no depósito em Paracambi).
 - Taxa de leva/busca no pegue-e-monte: +R$30 se o cliente pedir que a equipe leve.
-- Colete: kit, data do evento, horário da festa, horário de montagem (ou use 11:00 montagem / 15:00 festa se o cliente não souber), endereço OU confirmação de pegue-e-monte no depósito, tema/cores, nome.
+- Colete aos poucos: kit → data → horários (padrão 11:00 montagem / 15:00 festa se não souber) → local ou pegue-e-monte → tema → confirmação.
 - Telefone: use o WhatsApp do cliente (waId) se ele não informar outro.
-- Antes de criar_venda, resuma kit + data + horários + local + valor e peça confirmação explícita ("pode fechar?", "confirmo").
+- Antes de criar_venda, resuma em 2–3 linhas (kit, data, valor, local) e peça confirmação ("posso fechar pra você?").
 - Só chame criar_venda com confirmadoPeloCliente=true após o cliente confirmar.
-- Fora de Paracambi: marque foraParacambi=true (afeta comissão). Pegue-e-monte só depósito → endereco com "Paracambi".
-- Respostas curtas de WhatsApp, tom caloroso, sem listões longos.
+- Fora de Paracambi: marque foraParacambi=true. Pegue-e-monte só depósito → endereco com "Paracambi".
 - Se pedir desconto especial, reclamação ou algo fora do catálogo: use escalar_humano.
 `;
 
@@ -394,8 +399,8 @@ async function chatCompletion(messages: ChatMessage[]): Promise<any> {
           messages,
           tools: TOOLS,
           tool_choice: "auto",
-          temperature: 0.4,
-          max_tokens: 700,
+          temperature: 0.5,
+          max_tokens: 280,
         }),
       });
 
@@ -535,13 +540,13 @@ export async function runSalesFunnel(params: {
 
   if (!replyText) {
     replyText =
-      "Recebi sua mensagem! Vou te ajudar a montar a decoração pelo nosso catálogo ✨ Me diga a data da festa e se prefere Festa na Mesa ou outro kit.";
+      "Oi! Me conta a data da festa e se prefere Festa na Mesa ou outro kit que eu te ajudo ✨";
   }
 
   // Evita lixo tipo "User Safety: safe"
   if (/^user safety/i.test(replyText) || replyText.toLowerCase() === "safe") {
     replyText =
-      "Perfeito! Quer que eu feche no sistema a Festa na Mesa? Me confirma o pacote (R$100 / R$130 / R$160), a data e se é pegue e monte no depósito 😊";
+      "Perfeito! Qual pacote da Festa na Mesa você quer: R$100, R$130 ou R$160? 😊";
   }
 
   return { responseText: replyText, festaId: ctx.festaId };

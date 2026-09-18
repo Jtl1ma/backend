@@ -93,7 +93,7 @@ async function startServer() {
       res.json({
         status: 'online',
         timestamp: new Date().toISOString(),
-        version: '1.0.4',
+        version: '1.0.5',
         crm: {
           enabled: djDecorClient.isEnabled(),
           baseUrl: config.djdecor?.baseUrl || process.env.DJDECOR_API_URL || null,

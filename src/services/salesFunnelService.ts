@@ -11,25 +11,22 @@ import { isWeekend } from "../utils/dateUtils";
 
 const SYSTEM_PROMPT = `Você é a Debysinha — WhatsApp da Débora Pimentel Decoradora (Paracambi - RJ, @debora_pimentel_decoradora).
 
-Persona: amiga atenciosa, natural, carioca leve. Nunca script de call center.
+Persona: amiga atenciosa, natural, carioca leve. Conversa de verdade — nunca script, nunca lista robótica de preços.
 
-Regras de conversa (obrigatórias):
-- Esta NÃO é a primeira mensagem se já houver histórico. Nunca diga "Que bom te ver", "Oi tudo bem?" como se fosse o primeiro contato, nem peça de novo dados que a pessoa JÁ deu.
-- Use o bloco "Dados já coletados" e o histórico. Só pergunte o que ainda falta.
-- Cumprimento / "tá ocupada?" / "posso falar?": acolha e espere. Sem vender ainda.
-- Campanha/VIP/Instagram: use os posts do contexto. Explique e feche AQUI (não mande para outro WhatsApp). Palavra CURIOSA se estiver no post.
-- "130" / "R$130" / "de 130" na Festa na Mesa = pacote de CENTO E TRINTA REAIS (kit festa-mesa-com-mesa). NÃO é arco de 130cm.
-- Pacotes Festa na Mesa: R$100 (festa-mesa), R$130 (festa-mesa-com-mesa), R$160 (festa-mesa-mesa-bolas). Pegue-e-monte no depósito; leva/busca +R$30.
-- Se pedir catálogo / "o que você tem" / mudar kit / festa maior / 4M / 6M: SEMPRE use listar_catalogo (ou o bloco Catálogo do contexto) e mostre opções com preço. NÃO peça pra registrar a venda antiga.
-- Se já existe festa no sistema e a cliente quer MUDAR: confirme a mudança, mostre o kit novo e pergunte se atualiza — não ignore o pedido.
-- Quando faltar só 1 dado, peça só esse. Quando estiver tudo completo, resuma e pergunte se pode registrar — ou use criar_venda se já confirmou.
-- Em criar_venda, preencha observacoes e notasInternas com TODOS os detalhes. Não deixe genérico.
-- 2–5 frases (catálogo pode listar kits em linhas). Varie o texto. Emojis 0–2.
+Como ajudar (obrigatório):
+- Se a cliente NÃO tem ideia clara / só pergunta "quanto custa" / "o que você tem": ENTENDA primeiro. Em 1 pergunta curta, descubra ocasião (aniversário, chá…), tamanho aproximado (mesa / salão pequeno / grande) ou faixa de orçamento. Só depois sugira.
+- NUNCA despeje o catálogo inteiro. No máximo 2 ou 3 opções que façam sentido pro que ela descreveu, com preço.
+- Use o bloco Catálogo e as Campanhas/posts do Instagram do contexto pra orientar — campanha VIP/CURIOSA quando bater com Festa na Mesa.
+- Se ela já deu sinal (ex.: festa na mesa, 6M, festa): responda direto com 1–2 opções alinhadas, sem interrogatório longo.
+- Esta NÃO é a primeira mensagem se já houver histórico. Nunca diga "Que bom te ver" nem peça de novo o que ela JÁ falou.
+- Cumprimento / "posso falar?": acolha e espere. Sem vender ainda.
+- "130" / "de 130" na Festa na Mesa = R$130 (festa-mesa-com-mesa), NÃO é arco de 130cm.
+- Festa na Mesa: R$100 / R$130 / R$160 (pegue e monte; leva/busca +R$30).
+- Quer mudar kit ou festa maior: confirme a troca e sugira 2 opções — não ignore e não force fechar a venda antiga.
+- Dados completos: resuma e peça OK pra registrar (criar_venda). Observações/notas com todos os detalhes.
+- 2–5 frases. Emojis 0–2. Tom humano.
 
-Venda (tools):
-- Use listar_catalogo / montar_orcamento / checar_agenda / criar_venda. Não invente preço.
-- criar_venda só com confirmadoPeloCliente=true (ou quando ela já confirmou kit+data+hora+local). A tool fecha a venda no CRM (FECHADO).
-- Reclamação/desconto especial → escalar_humano.
+Tools: listar_catalogo / montar_orcamento / checar_agenda / criar_venda (só com confirmação). Não invente preço. Reclamação/desconto especial → escalar_humano.
 `;
 
 const BAD_OPENER =
@@ -47,6 +44,8 @@ type SaleSlots = {
   foraParacambi: boolean;
   confirmou: boolean;
 };
+
+type KitBand = "mesa" | "pequeno" | "medio" | "grande" | null;
 
 function isCampaignAsk(text: string): boolean {
   return /\b(campanha|promo|promo[cç][aã]o|desconto|vip|curios[oa]|instagram|stories?)\b/i.test(
@@ -66,6 +65,153 @@ function wantsKitChange(text: string): boolean {
   );
 }
 
+/** Pergunta de valor/preço sem citar tipo de festa. */
+function isVaguePriceAsk(text: string): boolean {
+  const asksPrice =
+    /\b(quanto custa|qual\s+(o\s+)?valor|quais?\s+(os\s+)?valores|quais?\s+(os\s+)?pre[cç]os|me passa\s+(o\s+)?valor|faixa\s+de\s+pre[cç]o|t[aá]\s+quanto)\b/i.test(
+      text
+    );
+  if (!asksPrice) return false;
+  return !/\b(festa na mesa|6\s*m|4\s*m|pocket|intermedi|m[eé]dia|130|100|160|mesa|metros)\b/i.test(
+    text
+  );
+}
+
+function isUndecided(text: string): boolean {
+  return /\b(n[aã]o sei|sem ideia|n[aã]o tenho ideia|me ajuda a (escolher|decidir)|o que (voc[eê]|vc) (sugere|indica|recomenda)|estou em d[uú]vida|ainda n[aã]o sei|n[aã]o sei qual)\b/i.test(
+    text
+  );
+}
+
+function inferKitBand(text: string): KitBand {
+  if (/\b(6\s*m|6\s*metros|4\s*m|4\s*metros|festa\s+grande|sal[aã]o\s+grande|decora[cç][aã]o\s+grande)\b/i.test(text)) {
+    return "grande";
+  }
+  if (/\b(festa na mesa|mesa|pegue\s*e\s*monte|simples|baratinh)\b/i.test(text)) {
+    return "mesa";
+  }
+  if (/\b(pocket|pequena|intimista|em casa|apartamento)\b/i.test(text)) {
+    return "pequeno";
+  }
+  if (/\b(intermedi|m[eé]dia|m[eé]dio|sal[aã]o\s+pequeno)\b/i.test(text)) {
+    return "medio";
+  }
+  return null;
+}
+
+function pickKitsForBand(
+  cat: { kits: CatalogoKit[] },
+  band: KitBand
+): CatalogoKit[] {
+  const byId = (id: string) => cat.kits.find((k) => k.id === id);
+  const pick = (ids: string[]) =>
+    ids.map(byId).filter(Boolean) as CatalogoKit[];
+
+  if (band === "mesa") {
+    return pick(["festa-mesa", "festa-mesa-com-mesa", "festa-mesa-mesa-bolas"]);
+  }
+  if (band === "pequeno") {
+    return pick(["pocket", "festa-mesa-com-mesa", "intermediaria"]);
+  }
+  if (band === "medio") {
+    return pick(["intermediaria", "media", "decoracao-4m"]);
+  }
+  if (band === "grande") {
+    return pick(["decoracao-6m", "decoracao-4m", "media"]);
+  }
+  // Sem sinal: 3 caminhos populares (não o catálogo todo)
+  return pick(["festa-mesa-com-mesa", "media", "decoracao-6m"]);
+}
+
+function formatKitLine(k: CatalogoKit): string {
+  const pe =
+    k.valorPegueEMonte != null && k.valorPegueEMonte !== k.valorEquipe
+      ? ` · pegue e monte R$${k.valorPegueEMonte}`
+      : k.valorPegueEMonte != null
+        ? " · pegue e monte"
+        : "";
+  return `• *${k.nome}* — R$${k.valorEquipe}${pe}`;
+}
+
+/**
+ * Resposta humana: poucas opções alinhadas ao pedido, ou pergunta pra entender.
+ */
+function humanAssistReply(params: {
+  cat: { kits: CatalogoKit[]; addons: CatalogoAddon[] };
+  userMessage: string;
+  contactName?: string | null;
+  posts?: Array<{ caption?: string; permalink?: string }>;
+  changing?: boolean;
+}): string {
+  const { cat, userMessage, contactName, posts, changing } = params;
+  const nome = contactName?.split(/\s+/)[0];
+  const prefix = nome ? `${nome}, ` : "";
+  const band = inferKitBand(userMessage);
+  const joinedPosts = (posts || []).map((p) => p.caption || "").join(" ");
+  const hasVip = /festa na mesa|curios|vip/i.test(joinedPosts);
+  const link = posts?.find((p) => p.permalink)?.permalink;
+
+  // Pedido bem específico (ex.: 6M) → 2 opções, sem dump
+  if (band === "grande" || band === "mesa" || band === "pequeno" || band === "medio") {
+    const kits = pickKitsForBand(cat, band).slice(0, 3);
+    const intro =
+      band === "grande"
+        ? changing
+          ? "fechado, vamos pra algo maior — essas costumam ficar lindas:"
+          : "pra festa grande eu indico essas:"
+        : band === "mesa"
+          ? hasVip
+            ? `pra mesa fica lindo — e ainda rola a campanha VIP` +
+              (link ? ` (${link})` : "") +
+              ` com a palavra *CURIOSA*. Opções:`
+            : "pra Festa na Mesa (pegue e monte) tenho essas:"
+          : "olha o que mais combina com o que você falou:";
+    return (
+      prefix +
+      intro +
+      "\n" +
+      kits.map(formatKitLine).join("\n") +
+      "\nQual te anima mais?"
+    );
+  }
+
+  // Valor / catálogo / indecisão sem tipo → entender primeiro (+ 1 dica leve)
+  if (
+    isVaguePriceAsk(userMessage) ||
+    isUndecided(userMessage) ||
+    isCatalogAsk(userMessage)
+  ) {
+    const campanha =
+      hasVip
+        ? ` Se quiser algo prático, a *Festa na Mesa* tá em campanha VIP no Instagram` +
+          (link ? ` (${link})` : "") +
+          "."
+        : "";
+    return (
+      prefix +
+      `me conta um pouquinho pra eu te indicar certo: é aniversário, chá, outro? E você imagina algo mais de *mesa* (compacto) ou um *painel/salão* maior?` +
+      campanha +
+      ` Assim eu te passo só 2–3 opções com valor, sem enrolação 💛`
+    );
+  }
+
+  // Mudança genérica
+  if (changing) {
+    return (
+      prefix +
+      "sem problema, a gente ajusta! Você tá pensando em algo mais *compacto* (mesa) ou *maior* (painel/metros)? Me fala o clima que eu te indico 2 opções com preço."
+    );
+  }
+
+  const popular = pickKitsForBand(cat, null).slice(0, 3);
+  return (
+    prefix +
+    "pra eu te ajudar bem, me fala se quer algo de mesa ou uma decoração maior — enquanto isso, as mais pedidas são:\n" +
+    popular.map(formatKitLine).join("\n") +
+    "\nQual caminho te chama?"
+  );
+}
+
 /** Só falas do cliente (linhas IN:) — evita puxar lixo das perguntas da IA. */
 function clientOnlyText(transcript: string): string {
   const lines = transcript
@@ -81,7 +227,7 @@ function isSoftOpener(text: string): boolean {
   if (!t || t.length > 90) return false;
   if (isCampaignAsk(t)) return false;
   const hasSaleIntent =
-    /(festa|decor|mesa|orcamento|orçamento|agendar|kit|preco|preço|pacote|valor|contrato|bolas|casamento|anivers|130|100|160|rua|endereco|endereço|cat[aá]logo|6\s*m|4\s*m|metros)/i.test(
+    /(festa|decor|mesa|orcamento|orçamento|agendar|kit|preco|preço|pacote|valor|contrato|bolas|casamento|anivers|130|100|160|rua|endereco|endereço|cat[aá]logo|6\s*m|4\s*m|metros|quanto custa)/i.test(
       t
     );
   if (hasSaleIntent) return false;
@@ -611,28 +757,21 @@ function catalogSummary(cat: { kits: CatalogoKit[]; addons: CatalogoAddon[] }) {
   return `Catálogo (preços oficiais):\n${kits}\nLembre: 100/130/160 = REAIS do pacote Festa na Mesa, nunca centímetros.`;
 }
 
-/** Resposta WhatsApp legível com o catálogo (fallback / pedido explícito). */
+/** Resposta WhatsApp legível com poucas opções (não lista o catálogo inteiro). */
 function catalogWhatsAppReply(
   cat: { kits: CatalogoKit[]; addons: CatalogoAddon[] },
   contactName?: string | null,
-  hint?: string | null
+  hint?: string | null,
+  band: KitBand = null
 ): string {
   const nome = contactName?.split(/\s+/)[0];
-  const lines = cat.kits.slice(0, 12).map((k) => {
-    const pe =
-      k.valorPegueEMonte != null && k.valorPegueEMonte !== k.valorEquipe
-        ? ` · pegue e monte R$${k.valorPegueEMonte}`
-        : k.valorPegueEMonte != null
-          ? ` · pegue e monte`
-          : "";
-    return `• *${k.nome}* — R$${k.valorEquipe}${pe}`;
-  });
+  const kits = pickKitsForBand(cat, band).slice(0, 3);
   return (
     (nome ? `${nome}, ` : "") +
-    (hint || "olha o que tenho no catálogo agora:") +
+    (hint || "olha 3 caminhos que costumam combinar:") +
     "\n" +
-    lines.join("\n") +
-    "\nQual tamanho/pacote você prefere?"
+    kits.map(formatKitLine).join("\n") +
+    "\nQual te anima mais?"
   );
 }
 
@@ -945,25 +1084,41 @@ async function openRouterChat(params: {
 function contextualFallback(
   slots: SaleSlots,
   userMessage: string,
-  contactName?: string | null
+  contactName?: string | null,
+  posts?: Array<{ caption?: string; permalink?: string }>
 ): string {
   const nome = contactName?.split(/\s+/)[0];
   const prefix = nome ? `${nome}, ` : "";
 
   if (isCampaignAsk(userMessage)) {
-    return campaignFallbackReply(undefined, contactName, slots);
+    return campaignFallbackReply(posts, contactName, slots);
   }
 
-  if (isCatalogAsk(userMessage) || wantsKitChange(userMessage)) {
-    if (/\b6\s*m|6\s*metros\b/i.test(userMessage)) {
-      return (
-        prefix +
-        "a Decoração 6 Metros fica R$980 (montagem pela equipe). Também tenho 4M (R$730), Média, Intermediária, Pocket e as Festas na Mesa (R$100/130/160). Quer que eu te passe o catálogo completo ou já fechamos a de 6M?"
-      );
+  if (
+    isVaguePriceAsk(userMessage) ||
+    isUndecided(userMessage) ||
+    isCatalogAsk(userMessage) ||
+    wantsKitChange(userMessage)
+  ) {
+    const band = inferKitBand(userMessage);
+    if (band) {
+      // Sem catálogo em mãos no fallback puro — fala faixa aproximada
+      if (band === "grande") {
+        return (
+          prefix +
+          "pra festa grande a Decoração 6M fica R$980 e a 4M R$730 (montagem pela equipe). Quer que eu te explique a diferença ou já partimos pra data?"
+        );
+      }
+      if (band === "mesa") {
+        return (
+          prefix +
+          "Festa na Mesa no pegue e monte: R$100, R$130 ou R$160. Qual clima você quer — mais simples ou mais cheinha?"
+        );
+      }
     }
     return (
       prefix +
-      "claro! No catálogo tenho Festa na Mesa (R$100/130/160), Pocket, Intermediária, Média, Decoração 4M (R$730) e 6M (R$980), além de outros kits. Qual tamanho você quer ver primeiro?"
+      "me conta rapidinho: é aniversário ou outro tipo de festa? E você imagina algo de *mesa* ou um *painel/salão* maior? Aí eu te passo só 2–3 opções com valor 💛"
     );
   }
 
@@ -1048,7 +1203,8 @@ export async function runSalesFunnel(params: {
       responseText: contextualFallback(
         slots,
         params.userMessage,
-        params.contactName
+        params.contactName,
+        params.posts
       ),
       festaId: ctx.festaId,
     };
@@ -1122,27 +1278,28 @@ async function runSalesFunnelInner(
   const slots = extractSaleSlots(transcript);
   console.log("[funil] slots:", formatSlotsBlock(slots));
 
-  // Pediu catálogo / mudar kit → responde com preços oficiais (não insiste em fechar a venda antiga)
+  // Orientação humana: catálogo / valor vago / troca — NÃO despejar lista inteira
   if (
-    (isCatalogAsk(params.userMessage) || wantsKitChange(params.userMessage)) &&
+    (isCatalogAsk(params.userMessage) ||
+      wantsKitChange(params.userMessage) ||
+      isVaguePriceAsk(params.userMessage) ||
+      isUndecided(params.userMessage)) &&
     djDecorClient.isEnabled()
   ) {
     try {
       const cat = await getCatalog();
-      let hint: string | null = null;
-      if (/\b6\s*m|6\s*metros\b/i.test(params.userMessage)) {
-        hint =
-          "entendi que quer algo maior — a de *6 metros* é R$980. Olha o catálogo completo:";
-      } else if (wantsKitChange(params.userMessage) && ctx.festaId) {
-        hint =
-          "sem problema, a gente troca! Olha o que tenho no catálogo pra escolher:";
-      }
       return {
-        responseText: catalogWhatsAppReply(cat, params.contactName, hint),
+        responseText: humanAssistReply({
+          cat,
+          userMessage: params.userMessage,
+          contactName: params.contactName,
+          posts: params.posts,
+          changing: Boolean(wantsKitChange(params.userMessage) && ctx.festaId),
+        }),
         festaId: ctx.festaId,
       };
     } catch (err: any) {
-      console.warn("[funil] catálogo direto falhou:", err?.message || err);
+      console.warn("[funil] assistência de catálogo falhou:", err?.message || err);
     }
   }
 
@@ -1152,6 +1309,8 @@ async function runSalesFunnelInner(
     !ctx.festaId &&
     !isCatalogAsk(params.userMessage) &&
     !wantsKitChange(params.userMessage) &&
+    !isVaguePriceAsk(params.userMessage) &&
+    !isUndecided(params.userMessage) &&
     (slots.confirmou ||
       /tema|data|rua|montar|endere[cç]o|happy birthday|led|130|100|160/i.test(
         params.userMessage
@@ -1210,8 +1369,11 @@ async function runSalesFunnelInner(
     isCampaignAsk(params.userMessage)
       ? "Perguntou de campanha: explique a VIP com os posts e continue o fechamento."
       : null,
+    isVaguePriceAsk(params.userMessage) || isUndecided(params.userMessage)
+      ? "Cliente sem ideia clara / só pediu valor: ENTENDA (ocasião + tamanho) com 1 pergunta. NÃO liste todos os preços. No máx. 2–3 opções depois."
+      : null,
     isCatalogAsk(params.userMessage) || wantsKitChange(params.userMessage)
-      ? "PEDIDO DE CATÁLOGO/MUDANÇA: liste kits com preço do bloco Catálogo. Não peça pra registrar a venda antiga."
+      ? "Catálogo/mudança: sugira no máximo 2–3 kits do Catálogo alinhados ao pedido. Use campanhas do Instagram se couber. Não despeje a lista toda."
       : null,
     "PROIBIDO recomeçar a conversa ou fingir que é o primeiro contato.",
   ]
@@ -1309,7 +1471,8 @@ async function runSalesFunnelInner(
     responseText: contextualFallback(
       slots,
       params.userMessage,
-      params.contactName
+      params.contactName,
+      params.posts
     ),
     festaId: ctx.festaId,
   };

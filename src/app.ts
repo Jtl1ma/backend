@@ -93,10 +93,11 @@ async function startServer() {
       res.json({
         status: 'online',
         timestamp: new Date().toISOString(),
-        version: '1.0.2',
+        version: '1.0.3',
         crm: {
           enabled: djDecorClient.isEnabled(),
           baseUrl: config.djdecor?.baseUrl || process.env.DJDECOR_API_URL || null,
+          token: djDecorClient.tokenFingerprint(),
           reachable: crmPing.ok,
           status: crmPing.status ?? null,
           error: crmPing.error ?? null,

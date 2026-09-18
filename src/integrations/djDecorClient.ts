@@ -61,13 +61,11 @@ export class DjDecorClient {
       process.env.DJDECOR_API_URL ||
       process.env.DJDECOR_URL ||
       ""
-    ).replace(/\/$/, "");
+    )
+      .trim()
+      .replace(/\/$/, "");
 
-    const apiToken =
-      config.djdecor?.apiToken ||
-      process.env.DJDECOR_API_TOKEN ||
-      process.env.IA_SERVICE_TOKEN ||
-      "";
+    const apiToken = this.readToken();
 
     this.enabled = Boolean(baseURL && apiToken);
 
@@ -89,11 +87,43 @@ export class DjDecorClient {
       console.warn(
         "[dj-decor] Integração desligada: defina DJDECOR_API_URL e DJDECOR_API_TOKEN"
       );
+    } else {
+      console.log(
+        `[dj-decor] token carregado len=${apiToken.length} tail=${apiToken.slice(-4)}`
+      );
     }
+  }
+
+  private readToken(): string {
+    const raw =
+      process.env.DJDECOR_API_TOKEN ||
+      process.env.IA_SERVICE_TOKEN ||
+      config.djdecor?.apiToken ||
+      "";
+    return String(raw)
+      .trim()
+      .replace(/^Bearer\s+/i, "")
+      .replace(/^["']|["']$/g, "")
+      .trim();
+  }
+
+  tokenFingerprint(): { len: number; tail: string } | null {
+    const token = this.readToken();
+    if (!token) return null;
+    return { len: token.length, tail: token.slice(-4) };
   }
 
   isEnabled() {
     return this.enabled;
+  }
+
+  private authHeaders(): Record<string, string> {
+    const token = this.readToken();
+    if (!token) return {};
+    return {
+      Authorization: `Bearer ${token}`,
+      "X-IA-Token": token,
+    };
   }
 
   async syncInbound(input: {
@@ -107,7 +137,8 @@ export class DjDecorClient {
     try {
       const response = await this.client.post<SyncInboundResult>(
         "/api/integracoes/ia/mensagens/inbound",
-        input
+        input,
+        { headers: this.authHeaders() }
       );
       return response.data;
     } catch (err: any) {
@@ -130,7 +161,8 @@ export class DjDecorClient {
     try {
       const response = await this.client.post(
         "/api/integracoes/ia/mensagens/outbound",
-        input
+        input,
+        { headers: this.authHeaders() }
       );
       return response.data;
     } catch (err: any) {
@@ -154,6 +186,7 @@ export class DjDecorClient {
           data,
           ...(horarioMontagem ? { horarioMontagem } : {}),
         },
+        headers: this.authHeaders(),
       }
     );
     return response.data;
@@ -205,6 +238,7 @@ export class DjDecorClient {
       });
       const response = await this.client.get("/api/integracoes/ia/agenda", {
         params: { data: dia },
+        headers: this.authHeaders(),
         validateStatus: () => true,
       });
       if (response.status >= 200 && response.status < 300) {

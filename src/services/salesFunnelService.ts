@@ -9,24 +9,30 @@ import { notifyHumanAttendant } from "./attendantService";
 import { generateAIResponse } from "./aiService";
 import { isWeekend } from "../utils/dateUtils";
 
-const SYSTEM_PROMPT = `Você é a *Debysinha*, amiga carinhosa da Débora Pimentel Decoradora (Paracambi - RJ | @debora_pimentel_decoradora).
+const SYSTEM_PROMPT = `Você é a Debysinha — atendimento do WhatsApp da Débora Pimentel Decoradora (Paracambi - RJ, Instagram @debora_pimentel_decoradora).
 
-Fale como uma pessoa real no WhatsApp: natural, calorosa, com ritmo de conversa. Nunca pareça script, robô ou formulário.
+Persona:
+Você é uma amiga atenciosa que entende de festa. Fala com naturalidade carioca leve, carinho e presença. Tem humor suave quando cabe. Nunca soa como script, formulário ou call center.
 
-Como conversar:
-- Leia a intenção (oi, “tá ocupada?”, “tem campanha?”, quero orçamento…).
-- Cumprimento / “posso falar?” / “tá ocupada?” → acolha com leveza e espere. Sem pedir data/kit ainda.
-- Se perguntarem de campanha, promoção, VIP ou Instagram → use as campanhas/posts do contexto e explique com carinho (Festa na Mesa VIP, palavra CURIOSA se estiver no post, preços do catálogo). Ofereça fechar AQUI no chat, sem mandar para outro WhatsApp.
-- Se pedirem decoração/kit → avance com 1–2 dicas + pergunta natural.
-- Varie o jeito de falar. Não repita a mesma frase da mensagem anterior.
-- 2–5 frases. Emojis leves.
+Como uma humana de verdade:
+- Entenda o clima da mensagem antes de responder (cumprimento, “posso falar?”, “tá ocupada?”, dúvida, vontade de fechar).
+- Responda ao que a pessoa disse — não mude de assunto.
+- Se for só oi / boa noite / “posso falar um minuto?” / “tá ocupada?”: acolha, diga que pode falar, e espere. Não peça data, kit nem preço ainda.
+- Se perguntar de campanha, promoção, VIP ou Instagram: use as campanhas/posts do contexto. Explique com carinho (ex.: Festa na Mesa VIP, palavra CURIOSA se estiver no post) e ofereça fechar AQUI no chat. Não mande para outro WhatsApp.
+- Se quiser decoração: ouça, dê 1–2 dicas úteis (cores, pacote, pegue-e-monte) e avance sem pressa.
+- Lembre o que já foi dito na conversa. Não pergunte de novo o que ela já respondeu.
+- Varie as frases. Nunca repita a mesma resposta da mensagem anterior.
+- Mensagens de WhatsApp: 2–5 frases na maioria das vezes. Pode ser um pouco mais longa se estiver explicando campanha ou fechando orçamento.
+- Emojis com parcimônia (0–2), como pessoa real.
 
-Venda (quando o assunto for festa):
-- Tools para preço, agenda e criar_venda. Não invente valor.
+Venda (só quando o assunto for festa/decoração):
+- Use as tools para preço, agenda e criar_venda. Não invente valores.
 - Festa na Mesa: R$100 / R$130 / R$160, pegue-e-monte no depósito (leva/busca +R$30).
-- Confirme antes de criar_venda (confirmadoPeloCliente=true).
-- Reclamação/desconto fora do padrão → escalar_humano.
-`;
+- Antes de criar_venda, confirme com a cliente. Só chame com confirmadoPeloCliente=true.
+- Desconto fora do padrão ou reclamação → escalar_humano.
+
+Você quer que a pessoa se sinta ouvida — e, quando fizer sentido, ajudá-la a fechar a festa dos sonhos.`;
+
 
 function isCampaignAsk(text: string): boolean {
   return /\b(campanha|promo|promo[cç][aã]o|desconto|vip|curios[oa]|instagram|stories?)\b/i.test(
@@ -501,8 +507,8 @@ async function openRouterChat(params: {
       const body: Record<string, unknown> = {
         model,
         messages: params.messages,
-        temperature: 0.5,
-        max_tokens: 420,
+        temperature: 0.8,
+        max_tokens: 500,
       };
       if (params.withTools) {
         body.tools = TOOLS;
@@ -537,19 +543,8 @@ async function openRouterChat(params: {
   throw lastError || new Error("Nenhum modelo respondeu");
 }
 
-function uniqueModels(...lists: string[][]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const list of lists) {
-    for (const m of list) {
-      if (!m || seen.has(m)) continue;
-      // Evita IDs inventados que só gastam tentativa
-      if (/^gpt-5\./i.test(m)) continue;
-      seen.add(m);
-      out.push(m);
-    }
-  }
-  return out;
+function uniqueModels(..._lists: string[][]): string[] {
+  return resolveChatModels();
 }
 
 /**
@@ -574,31 +569,8 @@ export async function runSalesFunnel(params: {
     festaId: params.festaId,
   };
 
-  // Abertura social: tenta o modelo inteligente primeiro; só usa frase pronta se falhar
-  if (isSoftOpener(params.userMessage)) {
-    try {
-      const soft = await runSalesFunnelInner(
-        {
-          ...params,
-          // Hint leve no user message wrapper via posts only — prompt já cobre
-        },
-        ctx,
-        { forceNoTools: true, socialOnly: true }
-      );
-      if (soft.responseText) return soft;
-    } catch (err: any) {
-      console.warn("[funil] soft opener LLM falhou:", err?.message || err);
-    }
-    const nome = params.contactName?.split(/\s+/)[0];
-    return {
-      responseText: nome
-        ? `Oi, ${nome}! Claro 💛 Pode falar, tô aqui sim.`
-        : "Oi! Claro 💛 Pode falar, tô aqui sim.",
-      festaId: ctx.festaId,
-    };
-  }
-
-  // Pergunta de campanha: se o LLM falhar, responde com o post real do Instagram
+  // Soft openers e campanhas: deixa o GPT-5 responder (mais humano).
+  // Só usa fallback engessado se o modelo falhar de verdade.
   if (isCampaignAsk(params.userMessage)) {
     try {
       return await runSalesFunnelInner(params, ctx);
@@ -612,12 +584,24 @@ export async function runSalesFunnel(params: {
   }
 
   try {
-    return await runSalesFunnelInner(params, ctx);
+    return await runSalesFunnelInner(params, ctx, {
+      forceNoTools: isSoftOpener(params.userMessage),
+      socialOnly: isSoftOpener(params.userMessage),
+    });
   } catch (err: any) {
     console.error("[funil] erro fatal, fallback generateAI:", err?.message || err);
     if (isCampaignAsk(params.userMessage)) {
       return {
         responseText: campaignFallbackReply(params.posts, params.contactName),
+        festaId: ctx.festaId,
+      };
+    }
+    if (isSoftOpener(params.userMessage)) {
+      const nome = params.contactName?.split(/\s+/)[0];
+      return {
+        responseText: nome
+          ? `Oi, ${nome}! Claro 💛 Pode falar, tô aqui sim.`
+          : "Oi! Claro 💛 Pode falar, tô aqui sim.",
         festaId: ctx.festaId,
       };
     }
@@ -717,12 +701,19 @@ async function runSalesFunnelInner(
     history.push({ role: "user", content: params.userMessage });
   }
 
+  const lastAssistant = [...history]
+    .reverse()
+    .find((m) => m.role === "assistant" && m.content);
+  const antiRepeat = lastAssistant?.content
+    ? `\nNão repita esta resposta anterior (varie o jeito de falar):\n"${String(lastAssistant.content).slice(0, 180)}"`
+    : "";
+
   const socialHint = opts?.socialOnly
-    ? "\nModo desta mensagem: abertura social. Acolha e espere — sem vender ainda."
+    ? "\nModo desta mensagem: abertura social. Acolha com carinho e espere — sem vender ainda."
     : "";
 
   const campaignHint = isCampaignAsk(params.userMessage)
-    ? "\nO cliente perguntou de campanha: use os posts abaixo e explique a oferta ativa com carinho."
+    ? "\nO cliente perguntou de campanha: use os posts abaixo e explique a oferta ativa com naturalidade."
     : "";
 
   const contextBlock = [
@@ -733,10 +724,11 @@ async function runSalesFunnelInner(
     `festaId: ${ctx.festaId || "nenhuma"}`,
     catalogText || null,
     postsText
-      ? `Campanhas/posts ativos do Instagram (use quando fizer sentido):\n${postsText}`
+      ? `Campanhas/posts ativos do Instagram (ofereça quando fizer sentido):\n${postsText}`
       : "Nenhum post Instagram carregado agora.",
     socialHint || null,
     campaignHint || null,
+    antiRepeat || null,
   ]
     .filter(Boolean)
     .join("\n");

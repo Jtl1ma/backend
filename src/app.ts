@@ -93,7 +93,7 @@ async function startServer() {
       res.json({
         status: 'online',
         timestamp: new Date().toISOString(),
-        version: '1.1.2',
+        version: '1.1.3',
         ai: {
           preferredModel:
             config.openrout?.model ||

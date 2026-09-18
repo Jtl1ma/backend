@@ -9,30 +9,41 @@ import { notifyHumanAttendant } from "./attendantService";
 import { generateAIResponse } from "./aiService";
 import { isWeekend } from "../utils/dateUtils";
 
-const SYSTEM_PROMPT = `Você é a Debysinha — atendimento do WhatsApp da Débora Pimentel Decoradora (Paracambi - RJ, Instagram @debora_pimentel_decoradora).
+const SYSTEM_PROMPT = `Você é a Debysinha — WhatsApp da Débora Pimentel Decoradora (Paracambi - RJ, @debora_pimentel_decoradora).
 
-Persona:
-Você é uma amiga atenciosa que entende de festa. Fala com naturalidade carioca leve, carinho e presença. Tem humor suave quando cabe. Nunca soa como script, formulário ou call center.
+Persona: amiga atenciosa, natural, carioca leve. Nunca script de call center.
 
-Como uma humana de verdade:
-- Entenda o clima da mensagem antes de responder (cumprimento, “posso falar?”, “tá ocupada?”, dúvida, vontade de fechar).
-- Responda ao que a pessoa disse — não mude de assunto.
-- Se for só oi / boa noite / “posso falar um minuto?” / “tá ocupada?”: acolha, diga que pode falar, e espere. Não peça data, kit nem preço ainda.
-- Se perguntar de campanha, promoção, VIP ou Instagram: use as campanhas/posts do contexto. Explique com carinho (ex.: Festa na Mesa VIP, palavra CURIOSA se estiver no post) e ofereça fechar AQUI no chat. Não mande para outro WhatsApp.
-- Se quiser decoração: ouça, dê 1–2 dicas úteis (cores, pacote, pegue-e-monte) e avance sem pressa.
-- Lembre o que já foi dito na conversa. Não pergunte de novo o que ela já respondeu.
-- Varie as frases. Nunca repita a mesma resposta da mensagem anterior.
-- Mensagens de WhatsApp: 2–5 frases na maioria das vezes. Pode ser um pouco mais longa se estiver explicando campanha ou fechando orçamento.
-- Emojis com parcimônia (0–2), como pessoa real.
+Regras de conversa (obrigatórias):
+- Esta NÃO é a primeira mensagem se já houver histórico. Nunca diga "Que bom te ver", "Oi tudo bem?" como se fosse o primeiro contato, nem peça de novo dados que a pessoa JÁ deu.
+- Use o bloco "Dados já coletados" e o histórico. Só pergunte o que ainda falta.
+- Cumprimento / "tá ocupada?" / "posso falar?": acolha e espere. Sem vender ainda.
+- Campanha/VIP/Instagram: use os posts do contexto. Explique e feche AQUI (não mande para outro WhatsApp). Palavra CURIOSA se estiver no post.
+- "130" / "R$130" / "de 130" na Festa na Mesa = pacote de CENTO E TRINTA REAIS (kit festa-mesa-com-mesa). NÃO é arco de 130cm.
+- Pacotes Festa na Mesa: R$100 (festa-mesa), R$130 (festa-mesa-com-mesa), R$160 (festa-mesa-mesa-bolas). Pegue-e-monte no depósito; leva/busca +R$30.
+- Quando faltar só 1 dado, peça só esse. Quando estiver tudo completo, resuma e pergunte se pode registrar no sistema — ou use a tool criar_venda se a cliente já confirmou.
+- 2–5 frases. Varie o texto. Emojis 0–2.
 
-Venda (só quando o assunto for festa/decoração):
-- Use as tools para preço, agenda e criar_venda. Não invente valores.
-- Festa na Mesa: R$100 / R$130 / R$160, pegue-e-monte no depósito (leva/busca +R$30).
-- Antes de criar_venda, confirme com a cliente. Só chame com confirmadoPeloCliente=true.
-- Desconto fora do padrão ou reclamação → escalar_humano.
+Venda (tools):
+- Use listar_catalogo / montar_orcamento / checar_agenda / criar_venda. Não invente preço.
+- criar_venda só com confirmadoPeloCliente=true (ou quando ela já confirmou kit+data+hora+local).
+- Reclamação/desconto especial → escalar_humano.
+`;
 
-Você quer que a pessoa se sinta ouvida — e, quando fizer sentido, ajudá-la a fechar a festa dos sonhos.`;
+const BAD_OPENER =
+  /que bom te ver|em que posso te ajudar na festa|pode me contar com calma o que voc[eê] precisa|tudo bem\? claro que quero te ajudar/i;
 
+type SaleSlots = {
+  kitCatalogo: string | null;
+  valor: number | null;
+  tema: string | null;
+  dataISO: string | null; // YYYY-MM-DD
+  horaMontagem: string | null; // HH:mm
+  horaFesta: string | null;
+  endereco: string | null;
+  pegueEMonte: boolean;
+  foraParacambi: boolean;
+  confirmou: boolean;
+};
 
 function isCampaignAsk(text: string): boolean {
   return /\b(campanha|promo|promo[cç][aã]o|desconto|vip|curios[oa]|instagram|stories?)\b/i.test(
@@ -45,7 +56,7 @@ function isSoftOpener(text: string): boolean {
   if (!t || t.length > 90) return false;
   if (isCampaignAsk(t)) return false;
   const hasSaleIntent =
-    /(festa|decor|mesa|orcamento|orçamento|agendar|kit|preco|preço|pacote|valor|contrato|bolas|casamento|anivers)/i.test(
+    /(festa|decor|mesa|orcamento|orçamento|agendar|kit|preco|preço|pacote|valor|contrato|bolas|casamento|anivers|130|100|160|rua|endereco|endereço)/i.test(
       t
     );
   if (hasSaleIntent) return false;
@@ -53,8 +64,7 @@ function isSoftOpener(text: string): boolean {
     /^(oi|ola|olá|oie|eai|e ai|bom dia|boa tarde|boa noite)\b/.test(t) ||
     /\b(posso falar|pode falar|tem um minutinho|um minuto|tudo bem|td bem|como vai|ta ocupada|tá ocupada|ocupada\?)\b/.test(
       t
-    ) ||
-    /^(oi|ola|olá).{0,40}(boa noite|bom dia|boa tarde)/.test(t)
+    )
   );
 }
 
@@ -76,34 +86,245 @@ function summarizeCampaigns(
 
 function campaignFallbackReply(
   posts: Array<{ caption?: string; permalink?: string }> | undefined,
-  contactName?: string | null
+  contactName?: string | null,
+  slots?: SaleSlots
 ): string {
   const nome = contactName?.split(/\s+/)[0];
   const joined = (posts || []).map((p) => p.caption || "").join(" \n ");
   const hasVip = /festa na mesa|curios|vip/i.test(joined);
   const link = posts?.find((p) => p.permalink)?.permalink;
+  const missing = missingSlotQuestion(slots);
 
   if (hasVip) {
     return (
-      (nome ? `${nome}, tenho sim! 💛 ` : "Tenho sim! 💛 ") +
-      `Está rolando campanha VIP da *Festa na Mesa* no Instagram` +
+      (nome ? `${nome}, ` : "") +
+      `sim — campanha VIP da *Festa na Mesa* no Instagram` +
       (link ? ` (${link})` : "") +
-      `. Os pacotes são R$100, R$130 e R$160 no pegue e monte — e a brincadeira do post é com a palavra *CURIOSA*. Quer que eu te explique e já feche por aqui?`
+      `. Pacotes R$100, R$130 e R$160 (pegue e monte) e a brincadeira do post é *CURIOSA*. ` +
+      (missing || "Quer que eu já registre o seu pacote no sistema?")
     );
   }
-  if (posts?.length) {
-    const teaser = String(posts[0].caption || "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 140);
-    return (
-      (nome ? `${nome}, sim! 💛 ` : "Sim! 💛 ") +
-      `No Instagram está assim: “${teaser}…”. Quer que eu te conte os detalhes e encaixe no orçamento?`
-    );
+  return (
+    (nome ? `${nome}, ` : "") +
+    (missing ||
+      "Temos a Festa na Mesa (R$100 / R$130 / R$160). Qual pacote você quer?")
+  );
+}
+
+/** Extrai dados de venda do texto completo da conversa. */
+export function extractSaleSlots(transcript: string): SaleSlots {
+  const t = transcript;
+
+  let kitCatalogo: string | null = null;
+  let valor: number | null = null;
+  let pegueEMonte = /pegue\s*e\s*monte|pegue e monte|retirada|dep[oó]sito/i.test(
+    t
+  );
+
+  // Pacote por preço (prioridade: fala explícita de reais / quero a de X)
+  if (
+    /\b(100|cem)\b.*\b(reais|r\$)?|\br\$\s*100\b|quero a de\s*100|pacote.{0,12}100/i.test(
+      t
+    ) &&
+    !/130|160/.test(t.slice(-80))
+  ) {
+    // weaker — prefer last mentioned price
   }
-  return nome
-    ? `${nome}, deixa eu te contar com carinho 💛 Temos a Festa na Mesa (R$100, R$130 e R$160). Quer que eu veja se tem condição especial pra você?`
-    : "Deixa eu te contar com carinho 💛 Temos a Festa na Mesa (R$100, R$130 e R$160). Quer que eu veja se tem condição especial pra você?";
+
+  const priceHits = [
+    ...t.matchAll(
+      /(?:r\$\s*)?(100|130|160)(?:\s*reais)?|quero a de\s*(100|130|160)|pacote\s*(?:de\s*)?(100|130|160)/gi
+    ),
+  ];
+  if (priceHits.length) {
+    const last = priceHits[priceHits.length - 1];
+    const n = Number(last[1] || last[2] || last[3]);
+    if (n === 100) {
+      kitCatalogo = "festa-mesa";
+      valor = 100;
+      pegueEMonte = true;
+    } else if (n === 130) {
+      kitCatalogo = "festa-mesa-com-mesa";
+      valor = 130;
+      pegueEMonte = true;
+    } else if (n === 160) {
+      kitCatalogo = "festa-mesa-mesa-bolas";
+      valor = 160;
+      pegueEMonte = true;
+    }
+  } else if (/festa na mesa/i.test(t)) {
+    pegueEMonte = true;
+  }
+
+  let dataISO: string | null = null;
+  const br = [...t.matchAll(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/g)];
+  if (br.length) {
+    const m = br[br.length - 1];
+    const day = m[1].padStart(2, "0");
+    const month = m[2].padStart(2, "0");
+    let year = m[3];
+    if (!year) year = "2026";
+    else if (year.length === 2) year = `20${year}`;
+    dataISO = `${year}-${month}-${day}`;
+  }
+
+  let horaMontagem: string | null = null;
+  let horaFesta: string | null = null;
+  const horaMatches = [
+    ...t.matchAll(
+      /(?:montar|montagem|as|às|as)\s*(\d{1,2})(?::(\d{2}))?\s*h?|\b(\d{1,2}):(\d{2})\b/gi
+    ),
+  ];
+  if (horaMatches.length) {
+    const last = horaMatches[horaMatches.length - 1];
+    const hh = (last[1] || last[3] || "18").padStart(2, "0");
+    const mm = (last[2] || last[4] || "00").padStart(2, "0");
+    horaMontagem = `${hh}:${mm}`;
+    // Se disse "montar às X", festa pode ser um pouco depois — default mesma hora
+    horaFesta = horaMontagem;
+  }
+
+  let endereco: string | null = null;
+  const rua = t.match(
+    /(?:endere[cç]o(?:\s*[ée]\s*|\s+)?)?(rua\s+[^.\n]{8,120})/i
+  );
+  if (rua) {
+    endereco = rua[1].replace(/\s+/g, " ").trim();
+  } else if (/espa[cç]o\s+de\s+festa\s+campos/i.test(t) && /beraldo|sabugo/i.test(t)) {
+    endereco = "Rua Beraldo Sacchi, 528, Sabugo — Espaço de festa Campos";
+  } else if (/espa[cç]o\s+de\s+festa\s+campos/i.test(t)) {
+    endereco = "Espaço de festa Campos";
+  }
+
+  let tema: string | null = null;
+  const temaM = t.match(
+    /tema\s+(?:[ée]\s+|eu quero(?:\s+que seja)?\s+)?([^\n.]{3,80})/i
+  );
+  if (temaM) tema = temaM[1].trim();
+  else if (/happy\s*birthday/i.test(t)) {
+    tema = /led/i.test(t) ? "Happy Birthday com LED" : "Happy Birthday";
+  } else if (/preto e dourado/i.test(t)) {
+    tema = "Happy Birthday preto e dourado";
+  }
+
+  if (/festa na mesa/i.test(t)) pegueEMonte = true;
+
+  const foraParacambi =
+    Boolean(endereco) && !/paracambi/i.test(endereco || "");
+
+  const confirmou =
+    /\b(sim|pode fechar|pode registrar|fechado|confirmo|pode criar|quero essa|pode ser)\b/i.test(
+      t.slice(-200)
+    );
+
+  return {
+    kitCatalogo,
+    valor,
+    tema,
+    dataISO,
+    horaMontagem,
+    horaFesta,
+    endereco,
+    pegueEMonte,
+    foraParacambi,
+    confirmou,
+  };
+}
+
+function slotsMissing(s: SaleSlots): string[] {
+  const miss: string[] = [];
+  if (!s.kitCatalogo || !s.valor) miss.push("pacote (R$100, R$130 ou R$160)");
+  if (!s.dataISO) miss.push("data da festa");
+  if (!s.horaMontagem) miss.push("horário de montagem");
+  if (!s.endereco) miss.push("endereço / local");
+  if (!s.tema) miss.push("tema");
+  return miss;
+}
+
+function slotsComplete(s: SaleSlots): boolean {
+  return slotsMissing(s).length === 0;
+}
+
+function missingSlotQuestion(s?: SaleSlots | null): string | null {
+  if (!s) return null;
+  const miss = slotsMissing(s);
+  if (!miss.length) {
+    return "Posso registrar no sistema agora pra você?";
+  }
+  if (miss.length === 1) return `Só me falta: ${miss[0]}. Pode me passar?`;
+  return `Pra fechar, ainda preciso de: ${miss.slice(0, 3).join(", ")}.`;
+}
+
+function formatSlotsBlock(s: SaleSlots): string {
+  return [
+    `kit=${s.kitCatalogo || "—"}`,
+    `valor=${s.valor ?? "—"}`,
+    `tema=${s.tema || "—"}`,
+    `data=${s.dataISO || "—"}`,
+    `montagem=${s.horaMontagem || "—"}`,
+    `endereco=${s.endereco || "—"}`,
+    `pegueEMonte=${s.pegueEMonte}`,
+    `foraParacambi=${s.foraParacambi}`,
+  ].join(" | ");
+}
+
+function toIsoDateTime(dateISO: string, hm: string): string {
+  const [h, m] = hm.split(":");
+  return `${dateISO}T${h.padStart(2, "0")}:${(m || "00").padStart(2, "0")}:00-03:00`;
+}
+
+async function tryCreateSaleFromSlots(
+  ctx: FunnelContext,
+  slots: SaleSlots,
+  contactName?: string | null
+): Promise<{ ok: boolean; festaId?: string; error?: string }> {
+  if (!slotsComplete(slots) || !slots.kitCatalogo || !slots.valor || !slots.dataISO) {
+    return { ok: false, error: "slots incompletos" };
+  }
+  if (ctx.festaId) return { ok: false, error: "já existe festa" };
+
+  const cat = await getCatalog();
+  const kit = cat.kits.find((k) => k.id === slots.kitCatalogo);
+  const horaM = slots.horaMontagem || "11:00";
+  const horaF = slots.horaFesta || slots.horaMontagem || "15:00";
+
+  const payload: CriarOrcamentoInput = {
+    nomeCliente: String(
+      ctx.cliente?.nome || contactName || "Cliente WhatsApp"
+    ),
+    telefone: String(ctx.cliente?.telefone || ctx.waId),
+    tema: slots.tema || "Festa na Mesa",
+    dataEvento: toIsoDateTime(slots.dataISO, horaF),
+    horarioMontagem: toIsoDateTime(slots.dataISO, horaM),
+    endereco:
+      slots.endereco ||
+      "Depósito Débora Pimentel — Paracambi/RJ (pegue e monte)",
+    valor: slots.valor,
+    tamanhoDecoracao: (kit?.tamanhoSugerido || "P") as "P" | "M" | "G" | "GG",
+    kitCatalogo: slots.kitCatalogo,
+    pegueEMonte: slots.pegueEMonte,
+    itensExtras: kit?.itens ? [...kit.itens] : [],
+    observacoes: "Criado pela Debysinha (WhatsApp) — campanha VIP / funil",
+    foraParacambi: slots.foraParacambi,
+    origem: "WhatsApp",
+    conversaId: ctx.conversaId || undefined,
+    vendedorId: ctx.vendedorId || undefined,
+  };
+
+  try {
+    const created = await djDecorClient.criarOrcamento(payload);
+    const id = created?.festa?.id;
+    if (id) ctx.festaId = id;
+    return { ok: true, festaId: id };
+  } catch (err: any) {
+    return {
+      ok: false,
+      error:
+        typeof err?.response?.data === "object"
+          ? JSON.stringify(err.response.data)
+          : err?.message || "falha criar",
+    };
+  }
 }
 
 const TOOLS = [
@@ -119,8 +340,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "montar_orcamento",
-      description:
-        "Calcula total a partir de kit, pegue-e-monte, add-ons e taxa de entrega.",
+      description: "Calcula total do kit.",
       parameters: {
         type: "object",
         properties: {
@@ -165,7 +385,7 @@ const TOOLS = [
     function: {
       name: "criar_venda",
       description:
-        "Cria orçamento/festa no CRM após confirmação explícita do cliente.",
+        "Cria orçamento/festa no CRM. Use quando kit, data, horário, local e tema estiverem ok e a cliente confirmou.",
       parameters: {
         type: "object",
         properties: {
@@ -256,7 +476,7 @@ function catalogSummary(cat: { kits: CatalogoKit[]; addons: CatalogoAddon[] }) {
       return `- ${k.id}: ${k.nome} — equipe R$${k.valorEquipe}${pe}`;
     })
     .join("\n");
-  return `Catálogo (use estes preços):\n${kits}`;
+  return `Catálogo (preços oficiais):\n${kits}\nLembre: 100/130/160 = REAIS do pacote Festa na Mesa, nunca centímetros.`;
 }
 
 function parseArgs(raw: string): Record<string, unknown> {
@@ -278,14 +498,8 @@ function normalizeToolCalls(choice: any): Array<{
   return raw
     .map((call: any, i: number) => {
       const name =
-        call?.function?.name ||
-        call?.name ||
-        call?.function_name ||
-        "";
-      const args =
-        call?.function?.arguments ??
-        call?.arguments ??
-        "{}";
+        call?.function?.name || call?.name || call?.function_name || "";
+      const args = call?.function?.arguments ?? call?.arguments ?? "{}";
       const id = call?.id || `call_${i}_${name || "tool"}`;
       return {
         id: String(id),
@@ -305,16 +519,23 @@ function toDay(dataEvento: string): string {
   });
 }
 
+function choiceText(choice: any): string {
+  const c = choice?.content;
+  if (typeof c === "string") return c.trim();
+  if (Array.isArray(c)) {
+    return c
+      .map((p) => (typeof p === "string" ? p : p?.text || ""))
+      .join("")
+      .trim();
+  }
+  return String(choice?.reasoning || "").trim();
+}
+
 function sanitizeReply(text: string): string {
   let t = String(text || "").trim();
   if (!t) return "";
-  if (/^user safety/i.test(t) || t.toLowerCase() === "safe") {
-    return "Me conta: qual data da festa e se prefere Festa na Mesa (R$100, R$130 ou R$160)? 😊";
-  }
-  // Evita repetir o fallback antigo
-  if (/em que posso te ajudar na festa\?/i.test(t) && t.length < 80) {
-    return "";
-  }
+  if (/^user safety/i.test(t) || t.toLowerCase() === "safe") return "";
+  if (BAD_OPENER.test(t)) return "";
   return t;
 }
 
@@ -362,10 +583,6 @@ async function dispatchTool(
       const addons = cat.addons.filter((a) => addonIds.includes(a.id));
       const valorAddons = addons.reduce((s, a) => s + Number(a.valor), 0);
       const taxa = pegueEMonte && taxaEntrega ? 30 : 0;
-      const itensTaxa =
-        taxa > 0
-          ? [`Taxa entrega/busca R$ ${taxa.toFixed(2).replace(".", ",")}`]
-          : [];
       return {
         ok: true,
         kitId: kit.id,
@@ -375,7 +592,13 @@ async function dispatchTool(
         valorAddons,
         valorTaxa: taxa,
         total: base + valorAddons + taxa,
-        itens: [...kit.itens, ...addons.map((a) => a.nome), ...itensTaxa],
+        itens: [
+          ...kit.itens,
+          ...addons.map((a) => a.nome),
+          ...(taxa
+            ? [`Taxa entrega/busca R$ ${taxa.toFixed(2).replace(".", ",")}`]
+            : []),
+        ],
         pegueEMonte,
       };
     }
@@ -393,8 +616,7 @@ async function dispatchTool(
     }
 
     case "historico_cliente": {
-      const telefone = String(args.telefone || ctx.waId);
-      return djDecorClient.findByTelefone(telefone);
+      return djDecorClient.findByTelefone(String(args.telefone || ctx.waId));
     }
 
     case "criar_venda": {
@@ -405,10 +627,7 @@ async function dispatchTool(
         };
       }
       if (ctx.festaId) {
-        return {
-          ok: false,
-          error: `Já existe festa vinculada (${ctx.festaId}).`,
-        };
+        return { ok: false, error: `Já existe festa (${ctx.festaId}).` };
       }
 
       const cat = await getCatalog();
@@ -507,8 +726,8 @@ async function openRouterChat(params: {
       const body: Record<string, unknown> = {
         model,
         messages: params.messages,
-        temperature: 0.8,
-        max_tokens: 500,
+        temperature: 0.75,
+        max_tokens: 550,
       };
       if (params.withTools) {
         body.tools = TOOLS;
@@ -543,12 +762,39 @@ async function openRouterChat(params: {
   throw lastError || new Error("Nenhum modelo respondeu");
 }
 
-function uniqueModels(..._lists: string[][]): string[] {
-  return resolveChatModels();
+function contextualFallback(
+  slots: SaleSlots,
+  userMessage: string,
+  contactName?: string | null
+): string {
+  const nome = contactName?.split(/\s+/)[0];
+  const prefix = nome ? `${nome}, ` : "";
+
+  if (isCampaignAsk(userMessage)) {
+    return campaignFallbackReply(undefined, contactName, slots);
+  }
+
+  if (slotsComplete(slots)) {
+    return (
+      prefix +
+      `anotei: ${slots.tema} · ${slots.dataISO?.split("-").reverse().join("/")} às ${slots.horaMontagem} · ${slots.endereco} · pacote R$${slots.valor}. Posso registrar no sistema agora?`
+    );
+  }
+
+  const q = missingSlotQuestion(slots);
+  if (slots.kitCatalogo || /festa na mesa|decora/i.test(userMessage)) {
+    return prefix + (q || "Me passa o que ainda falta pra eu fechar pra você?");
+  }
+
+  if (isSoftOpener(userMessage)) {
+    return prefix + "pode falar, tô aqui 💛";
+  }
+
+  return prefix + (q || "me conta o que você precisa que eu te ajudo?");
 }
 
 /**
- * Funil de vendas com tools + fallback de texto (nunca responde a mesma frase fixa).
+ * Funil de vendas: histórico + slots + GPT-5 + fechamento automático.
  */
 export async function runSalesFunnel(params: {
   userMessage: string;
@@ -569,39 +815,23 @@ export async function runSalesFunnel(params: {
     festaId: params.festaId,
   };
 
-  // Soft openers e campanhas: deixa o GPT-5 responder (mais humano).
-  // Só usa fallback engessado se o modelo falhar de verdade.
-  if (isCampaignAsk(params.userMessage)) {
-    try {
-      return await runSalesFunnelInner(params, ctx);
-    } catch (err: any) {
-      console.warn("[funil] campanha LLM falhou:", err?.message || err);
-      return {
-        responseText: campaignFallbackReply(params.posts, params.contactName),
-        festaId: ctx.festaId,
-      };
-    }
-  }
-
   try {
     return await runSalesFunnelInner(params, ctx, {
       forceNoTools: isSoftOpener(params.userMessage),
       socialOnly: isSoftOpener(params.userMessage),
     });
   } catch (err: any) {
-    console.error("[funil] erro fatal, fallback generateAI:", err?.message || err);
+    console.error("[funil] erro fatal:", err?.message || err);
+
+    // Tenta montar slots só com a mensagem atual + posts
+    const slots = extractSaleSlots(params.userMessage);
     if (isCampaignAsk(params.userMessage)) {
       return {
-        responseText: campaignFallbackReply(params.posts, params.contactName),
-        festaId: ctx.festaId,
-      };
-    }
-    if (isSoftOpener(params.userMessage)) {
-      const nome = params.contactName?.split(/\s+/)[0];
-      return {
-        responseText: nome
-          ? `Oi, ${nome}! Claro 💛 Pode falar, tô aqui sim.`
-          : "Oi! Claro 💛 Pode falar, tô aqui sim.",
+        responseText: campaignFallbackReply(
+          params.posts,
+          params.contactName,
+          slots
+        ),
         festaId: ctx.festaId,
       };
     }
@@ -615,22 +845,15 @@ export async function runSalesFunnel(params: {
       );
       const clean = sanitizeReply(text);
       if (clean) return { responseText: clean, festaId: ctx.festaId };
-    } catch (e2: any) {
-      console.error("[funil] generateAI também falhou:", e2?.message || e2);
-    }
-    const nome = params.contactName?.split(" ")[0];
-    if (/festa na mesa|mesa/i.test(params.userMessage)) {
-      return {
-        responseText: nome
-          ? `Amei, ${nome}! 💛 A Festa na Mesa fica linda e bem prática no pegue e monte. Temos R$100, R$130 e R$160 — qual você prefere?`
-          : `Amei! 💛 A Festa na Mesa fica linda no pegue e monte. Temos R$100, R$130 e R$160 — qual combina mais com a sua festa?`,
-        festaId: ctx.festaId,
-      };
+    } catch {
+      /* ignore */
     }
     return {
-      responseText: nome
-        ? `Oi, ${nome}! Que bom te ver 💛 Me conta com calma o que você precisa?`
-        : "Oi! Que bom te ver 💛 Me conta com calma o que você precisa?",
+      responseText: contextualFallback(
+        slots,
+        params.userMessage,
+        params.contactName
+      ),
       festaId: ctx.festaId,
     };
   }
@@ -657,30 +880,33 @@ async function runSalesFunnelInner(
     try {
       catalogText = catalogSummary(await getCatalog());
     } catch (err: any) {
-      console.warn("[funil] catálogo indisponível:", err?.message || err);
+      console.warn("[funil] catálogo:", err?.message || err);
     }
   }
 
   let history: ChatMessage[] = [];
+  let transcript = "";
+
   if (params.conversaId && djDecorClient.isEnabled()) {
     try {
       const data = await djDecorClient.getConversa(params.conversaId);
       const msgs = data?.conversa?.mensagens || [];
-      history = msgs.slice(-12).map((m: any) => {
-        const texto = String(m.texto || "").slice(0, 500);
+      history = msgs.slice(-30).map((m: any) => {
+        const texto = String(m.texto || "").slice(0, 600);
         if (m.direcao === "IN") {
           return { role: "user" as const, content: texto || "[mídia]" };
         }
         return { role: "assistant" as const, content: texto };
       });
+      // Remove só openers ruins da IA — mantém tudo do cliente
       history = history.filter((m) => {
         if (m.role !== "assistant") return true;
-        const c = m.content || "";
-        if (/em que posso te ajudar na festa\?/i.test(c)) return false;
-        if (/me conta a data e o clima da festa/i.test(c)) return false;
-        if (/pode me contar com calma o que você precisa/i.test(c)) return false;
-        return true;
+        return !BAD_OPENER.test(m.content || "");
       });
+      transcript = msgs
+        .map((m: any) => `${m.direcao}: ${m.texto || ""}`)
+        .join("\n");
+
       if (!ctx.vendedorId && data?.conversa?.vendedorId) {
         ctx.vendedorId = data.conversa.vendedorId;
       }
@@ -696,39 +922,69 @@ async function runSalesFunnelInner(
     }
   }
 
+  transcript = `${transcript}\nIN: ${params.userMessage}`;
+  const slots = extractSaleSlots(transcript);
+  console.log("[funil] slots:", formatSlotsBlock(slots));
+
+  // Auto-fecha quando dados completos e cliente acabou de confirmar / completar
+  const justCompleted =
+    slotsComplete(slots) &&
+    !ctx.festaId &&
+    (slots.confirmou ||
+      /tema|data|rua|montar|endere[cç]o|happy birthday|led|130|100|160/i.test(
+        params.userMessage
+      ));
+
+  if (justCompleted && djDecorClient.isEnabled()) {
+    const created = await tryCreateSaleFromSlots(
+      ctx,
+      slots,
+      params.contactName
+    );
+    if (created.ok) {
+      const dataBr = slots.dataISO!.split("-").reverse().join("/");
+      const nome = params.contactName?.split(/\s+/)[0] || "";
+      return {
+        responseText:
+          `${nome ? nome + ", " : ""}fechei pra você no sistema 💛\n` +
+          `*${slots.tema}* · ${dataBr} · montagem ${slots.horaMontagem} · ${slots.endereco}\n` +
+          `Pacote Festa na Mesa R$${slots.valor} (pegue e monte)` +
+          (slots.confirmou || true
+            ? ". Qualquer ajuste é só falar!"
+            : ". Qualquer ajuste é só falar!"),
+        festaId: created.festaId,
+      };
+    }
+    console.warn("[funil] auto-close falhou:", created.error);
+  }
+
   const last = history[history.length - 1];
   if (!last || last.role !== "user" || last.content !== params.userMessage) {
     history.push({ role: "user", content: params.userMessage });
   }
 
-  const lastAssistant = [...history]
-    .reverse()
-    .find((m) => m.role === "assistant" && m.content);
-  const antiRepeat = lastAssistant?.content
-    ? `\nNão repita esta resposta anterior (varie o jeito de falar):\n"${String(lastAssistant.content).slice(0, 180)}"`
-    : "";
-
-  const socialHint = opts?.socialOnly
-    ? "\nModo desta mensagem: abertura social. Acolha com carinho e espere — sem vender ainda."
-    : "";
-
-  const campaignHint = isCampaignAsk(params.userMessage)
-    ? "\nO cliente perguntou de campanha: use os posts abaixo e explique a oferta ativa com naturalidade."
-    : "";
-
+  const miss = slotsMissing(slots);
   const contextBlock = [
     `waId/telefone: ${params.waId}`,
     `Nome: ${params.contactName || "—"}`,
     `conversaId: ${params.conversaId || "—"}`,
-    `cliente: ${params.cliente ? `${params.cliente.nome} (${params.cliente.telefone})` : "novo"}`,
+    `cliente: ${params.cliente ? `${params.cliente.nome} (${params.cliente.telefone})` : "em andamento"}`,
     `festaId: ${ctx.festaId || "nenhuma"}`,
+    `Dados já coletados: ${formatSlotsBlock(slots)}`,
+    miss.length
+      ? `Ainda falta: ${miss.join(", ")}. Pergunte SÓ o que falta.`
+      : "Tudo completo — confirme e use criar_venda (confirmadoPeloCliente=true).",
     catalogText || null,
     postsText
-      ? `Campanhas/posts ativos do Instagram (ofereça quando fizer sentido):\n${postsText}`
-      : "Nenhum post Instagram carregado agora.",
-    socialHint || null,
-    campaignHint || null,
-    antiRepeat || null,
+      ? `Campanhas/posts Instagram:\n${postsText}`
+      : null,
+    opts?.socialOnly
+      ? "Abertura social: acolha e espere, sem vender."
+      : null,
+    isCampaignAsk(params.userMessage)
+      ? "Perguntou de campanha: explique a VIP com os posts e continue o fechamento."
+      : null,
+    "PROIBIDO recomeçar a conversa ou fingir que é o primeiro contato.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -740,9 +996,7 @@ async function runSalesFunnelInner(
   ];
 
   const models = resolveChatModels();
-  console.log(`[funil] modelos na fila: ${models.slice(0, 3).join(", ")}...`);
 
-  // 1) Tools (exceto abertura social)
   if (!opts?.forceNoTools) {
     try {
       const messages = [...baseMessages];
@@ -787,16 +1041,15 @@ async function runSalesFunnelInner(
           continue;
         }
 
-        replyText = sanitizeReply(String(choice.content ?? ""));
+        replyText = sanitizeReply(choiceText(choice));
         break;
       }
       if (replyText) return { responseText: replyText, festaId: ctx.festaId };
     } catch (err: any) {
-      console.warn("[funil] modo tools falhou:", err?.message || err);
+      console.warn("[funil] tools falhou:", err?.message || err);
     }
   }
 
-  // 2) Texto puro
   try {
     const completion = await openRouterChat({
       messages: baseMessages,
@@ -804,30 +1057,31 @@ async function runSalesFunnelInner(
       models,
     });
     const content = sanitizeReply(
-      String(completion.choices?.[0]?.message?.content ?? "")
+      choiceText(completion.choices?.[0]?.message)
     );
     if (content) return { responseText: content, festaId: ctx.festaId };
   } catch (err: any) {
-    console.warn("[funil] modo texto falhou:", err?.message || err);
+    console.warn("[funil] texto falhou:", err?.message || err);
   }
 
   if (isCampaignAsk(params.userMessage)) {
     return {
-      responseText: campaignFallbackReply(params.posts, params.contactName),
+      responseText: campaignFallbackReply(
+        params.posts,
+        params.contactName,
+        slots
+      ),
       festaId: ctx.festaId,
     };
   }
 
-  const legacy = sanitizeReply(
-    await generateAIResponse(
+  // Último recurso contextual — NUNCA "que bom te ver"
+  return {
+    responseText: contextualFallback(
+      slots,
       params.userMessage,
-      "neutral",
-      isWeekend(),
-      params.posts || [],
-      params.contactName || undefined
-    )
-  );
-  if (legacy) return { responseText: legacy, festaId: ctx.festaId };
-
-  throw new Error("Sem resposta útil dos modelos");
+      params.contactName
+    ),
+    festaId: ctx.festaId,
+  };
 }

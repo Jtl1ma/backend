@@ -1,4 +1,4 @@
-import config, { freeModeles } from "../config";
+import config, { resolveChatModels } from "../config";
 import {
   djDecorClient,
   type CatalogoAddon,
@@ -9,80 +9,96 @@ import { notifyHumanAttendant } from "./attendantService";
 import { generateAIResponse } from "./aiService";
 import { isWeekend } from "../utils/dateUtils";
 
-const SYSTEM_PROMPT = `Você é a *Debysinha*, amiga carinhosa e atenciosa da Débora Pimentel Decoradora (Paracambi - RJ | @debora_pimentel_decoradora).
+const SYSTEM_PROMPT = `Você é a *Debysinha*, amiga carinhosa da Débora Pimentel Decoradora (Paracambi - RJ | @debora_pimentel_decoradora).
 
-Você conversa como gente de verdade no WhatsApp — nunca como script de call center.
+Fale como uma pessoa real no WhatsApp: natural, calorosa, com ritmo de conversa. Nunca pareça script, robô ou formulário.
 
-Tom:
-- Carinhosa, leve e presente.
-- Entenda a intenção da mensagem (cumprimento, “posso falar?”, dúvida, pedido de orçamento).
-- Se for só cumprimento / “posso falar um minutinho?”, responda humano: acolha, diga que pode falar, e espere. NÃO peça data, kit, tema nem preço nessa hora.
-- Só fale de festa/kit quando a pessoa demonstrar interesse (decoração, mesa, data, orçamento, campanha).
-- Quando for vender: atenciosa, com 1–2 dicas, sem enrolação e sem textão.
-- Respostas curtas a médias (2–5 frases). Uma pergunta só quando fizer sentido. Emojis leves (1–2).
+Como conversar:
+- Leia a intenção (oi, “tá ocupada?”, “tem campanha?”, quero orçamento…).
+- Cumprimento / “posso falar?” / “tá ocupada?” → acolha com leveza e espere. Sem pedir data/kit ainda.
+- Se perguntarem de campanha, promoção, VIP ou Instagram → use as campanhas/posts do contexto e explique com carinho (Festa na Mesa VIP, palavra CURIOSA se estiver no post, preços do catálogo). Ofereça fechar AQUI no chat, sem mandar para outro WhatsApp.
+- Se pedirem decoração/kit → avance com 1–2 dicas + pergunta natural.
+- Varie o jeito de falar. Não repita a mesma frase da mensagem anterior.
+- 2–5 frases. Emojis leves.
 
-Objetivo geral: criar conexão e, quando couber, fechar a decoração no sistema (criar_venda).
-
-Regras de venda (só depois que o assunto for festa/decoração):
-- Use tools para preços, agenda e criar_venda. Não invente preço.
-- Campanhas do Instagram: ofereça no chat com preço do catálogo. NÃO mande para outro WhatsApp.
-- Festa na Mesa = pegue-e-monte no depósito (Paracambi), salvo leva/busca (+R$30).
-- Fluxo: acolher → entender desejo → sugerir → data/horários → local → confirmar → criar_venda.
-- Telefone = waId se não informar outro.
-- Antes de criar_venda, resuma e pergunte se pode fechar. Só com confirmadoPeloCliente=true.
-- Desconto especial / reclamação → escalar_humano.
-
-Exemplos (adapte, não copie seco):
-- Cliente: "Oi boa noite, posso falar um minuto?" → "Claro que pode! 💛 Boa noite, tô aqui sim. Pode mandar."
-- Cliente: "Quero festa na mesa" → "Amei! 💛 A Festa na Mesa fica linda e bem prática. Temos R$100, R$130 e R$160 — me conta a data que eu te ajudo a escolher?"
+Venda (quando o assunto for festa):
+- Tools para preço, agenda e criar_venda. Não invente valor.
+- Festa na Mesa: R$100 / R$130 / R$160, pegue-e-monte no depósito (leva/busca +R$30).
+- Confirme antes de criar_venda (confirmadoPeloCliente=true).
+- Reclamação/desconto fora do padrão → escalar_humano.
 `;
 
-/** Cumprimento / pedido de atenção sem pedido de venda ainda. */
+function isCampaignAsk(text: string): boolean {
+  return /\b(campanha|promo|promo[cç][aã]o|desconto|vip|curios[oa]|instagram|stories?)\b/i.test(
+    text
+  );
+}
+
 function isSoftOpener(text: string): boolean {
   const t = text.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").trim();
-  if (!t || t.length > 80) return false;
-
+  if (!t || t.length > 90) return false;
+  if (isCampaignAsk(t)) return false;
   const hasSaleIntent =
-    /(festa|decor|mesa|orcamento|orçamento|agendar|data|kit|preco|preço|pacote|valor|contrato|bolas|casamento|anivers)/i.test(
+    /(festa|decor|mesa|orcamento|orçamento|agendar|kit|preco|preço|pacote|valor|contrato|bolas|casamento|anivers)/i.test(
       t
     );
   if (hasSaleIntent) return false;
-
   return (
     /^(oi|ola|olá|oie|eai|e ai|bom dia|boa tarde|boa noite)\b/.test(t) ||
-    /\b(posso falar|pode falar|tem um minutinho|um minuto|tudo bem|td bem|como vai)\b/.test(
+    /\b(posso falar|pode falar|tem um minutinho|um minuto|tudo bem|td bem|como vai|ta ocupada|tá ocupada|ocupada\?)\b/.test(
       t
     ) ||
     /^(oi|ola|olá).{0,40}(boa noite|bom dia|boa tarde)/.test(t)
   );
 }
 
-function softOpenerReply(contactName?: string | null): string {
-  const nome = contactName?.split(/\s+/)[0];
-  const variants = nome
-    ? [
-        `Claro, ${nome}! 💛 Pode falar à vontade, tô aqui.`,
-        `Oi, ${nome}! Boa noite 😊 Pode sim, manda o que você precisar.`,
-        `Pode falar, ${nome}! 💛 Fico feliz que chamou. Estou por aqui.`,
-      ]
-    : [
-        "Claro! 💛 Pode falar à vontade, tô aqui.",
-        "Oi! Pode sim 😊 Manda o que você precisar.",
-        "Pode falar! 💛 Estou por aqui.",
-      ];
-  // Varia um pouco pra não parecer robô
-  const idx = Math.floor(Date.now() / 1000) % variants.length;
-  return variants[idx];
+function summarizeCampaigns(
+  posts?: Array<{ caption?: string; permalink?: string }>
+): string {
+  if (!posts?.length) return "";
+  return posts
+    .slice(0, 3)
+    .map((p, i) => {
+      const cap = String(p.caption || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 320);
+      return `${i + 1}. ${cap}${p.permalink ? ` (${p.permalink})` : ""}`;
+    })
+    .join("\n");
 }
 
-/** Modelos que costumam aceitar tools no OpenRouter (ordem de preferência). */
-const TOOL_MODELS = [
-  "openrouter/free",
-  "qwen/qwen3-next-80b-a3b-instruct:free",
-  "google/gemma-4-31b-it:free",
-  "openai/gpt-oss-120b:free",
-  "nvidia/nemotron-3-ultra-550b-a55b:free",
-];
+function campaignFallbackReply(
+  posts: Array<{ caption?: string; permalink?: string }> | undefined,
+  contactName?: string | null
+): string {
+  const nome = contactName?.split(/\s+/)[0];
+  const joined = (posts || []).map((p) => p.caption || "").join(" \n ");
+  const hasVip = /festa na mesa|curios|vip/i.test(joined);
+  const link = posts?.find((p) => p.permalink)?.permalink;
+
+  if (hasVip) {
+    return (
+      (nome ? `${nome}, tenho sim! 💛 ` : "Tenho sim! 💛 ") +
+      `Está rolando campanha VIP da *Festa na Mesa* no Instagram` +
+      (link ? ` (${link})` : "") +
+      `. Os pacotes são R$100, R$130 e R$160 no pegue e monte — e a brincadeira do post é com a palavra *CURIOSA*. Quer que eu te explique e já feche por aqui?`
+    );
+  }
+  if (posts?.length) {
+    const teaser = String(posts[0].caption || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 140);
+    return (
+      (nome ? `${nome}, sim! 💛 ` : "Sim! 💛 ") +
+      `No Instagram está assim: “${teaser}…”. Quer que eu te conte os detalhes e encaixe no orçamento?`
+    );
+  }
+  return nome
+    ? `${nome}, deixa eu te contar com carinho 💛 Temos a Festa na Mesa (R$100, R$130 e R$160). Quer que eu veja se tem condição especial pra você?`
+    : "Deixa eu te contar com carinho 💛 Temos a Festa na Mesa (R$100, R$130 e R$160). Quer que eu veja se tem condição especial pra você?";
+}
 
 const TOOLS = [
   {
@@ -558,18 +574,53 @@ export async function runSalesFunnel(params: {
     festaId: params.festaId,
   };
 
-  // Abertura social: responde humano e NÃO empurra venda/kit/data
+  // Abertura social: tenta o modelo inteligente primeiro; só usa frase pronta se falhar
   if (isSoftOpener(params.userMessage)) {
+    try {
+      const soft = await runSalesFunnelInner(
+        {
+          ...params,
+          // Hint leve no user message wrapper via posts only — prompt já cobre
+        },
+        ctx,
+        { forceNoTools: true, socialOnly: true }
+      );
+      if (soft.responseText) return soft;
+    } catch (err: any) {
+      console.warn("[funil] soft opener LLM falhou:", err?.message || err);
+    }
+    const nome = params.contactName?.split(/\s+/)[0];
     return {
-      responseText: softOpenerReply(params.contactName),
+      responseText: nome
+        ? `Oi, ${nome}! Claro 💛 Pode falar, tô aqui sim.`
+        : "Oi! Claro 💛 Pode falar, tô aqui sim.",
       festaId: ctx.festaId,
     };
+  }
+
+  // Pergunta de campanha: se o LLM falhar, responde com o post real do Instagram
+  if (isCampaignAsk(params.userMessage)) {
+    try {
+      return await runSalesFunnelInner(params, ctx);
+    } catch (err: any) {
+      console.warn("[funil] campanha LLM falhou:", err?.message || err);
+      return {
+        responseText: campaignFallbackReply(params.posts, params.contactName),
+        festaId: ctx.festaId,
+      };
+    }
   }
 
   try {
     return await runSalesFunnelInner(params, ctx);
   } catch (err: any) {
     console.error("[funil] erro fatal, fallback generateAI:", err?.message || err);
+    if (isCampaignAsk(params.userMessage)) {
+      return {
+        responseText: campaignFallbackReply(params.posts, params.contactName),
+        festaId: ctx.festaId,
+      };
+    }
     try {
       const text = await generateAIResponse(
         params.userMessage,
@@ -587,22 +638,15 @@ export async function runSalesFunnel(params: {
     if (/festa na mesa|mesa/i.test(params.userMessage)) {
       return {
         responseText: nome
-          ? `Amei, ${nome}! 💛 A Festa na Mesa fica linda e bem prática no pegue e monte. Temos R$100, R$130 e R$160 — pro preto e dourado o de R$130 ou R$160 costuma ficar mais cheio. Qual você prefere?`
+          ? `Amei, ${nome}! 💛 A Festa na Mesa fica linda e bem prática no pegue e monte. Temos R$100, R$130 e R$160 — qual você prefere?`
           : `Amei! 💛 A Festa na Mesa fica linda no pegue e monte. Temos R$100, R$130 e R$160 — qual combina mais com a sua festa?`,
-        festaId: ctx.festaId,
-      };
-    }
-    if (/decora/i.test(params.userMessage)) {
-      return {
-        responseText:
-          "Que legal planejar a decoração! 🎈 Se quiser algo lindo e prático, a Festa na Mesa é uma ótima pedida. Me conta a data e o tema/cores que eu te indico o pacote certo?",
         festaId: ctx.festaId,
       };
     }
     return {
       responseText: nome
-        ? `Oi, ${nome}! Que bom te ver por aqui 💛 Pode me contar com calma o que você precisa?`
-        : "Oi! Que bom te ver por aqui 💛 Pode me contar com calma o que você precisa?",
+        ? `Oi, ${nome}! Que bom te ver 💛 Me conta com calma o que você precisa?`
+        : "Oi! Que bom te ver 💛 Me conta com calma o que você precisa?",
       festaId: ctx.festaId,
     };
   }
@@ -619,18 +663,13 @@ async function runSalesFunnelInner(
     festaId?: string | null;
     posts?: Array<{ caption?: string; permalink?: string }>;
   },
-  ctx: FunnelContext
+  ctx: FunnelContext,
+  opts?: { forceNoTools?: boolean; socialOnly?: boolean }
 ): Promise<{ responseText: string; festaId?: string | null }> {
-  const postsText = (params.posts || [])
-    .slice(0, 5)
-    .map(
-      (p, i) =>
-        `${i + 1}. ${(p.caption || "Post Instagram").slice(0, 220)} — ${p.permalink || ""}`
-    )
-    .join("\n");
+  const postsText = summarizeCampaigns(params.posts);
 
   let catalogText = "";
-  if (djDecorClient.isEnabled()) {
+  if (djDecorClient.isEnabled() && !opts?.socialOnly) {
     try {
       catalogText = catalogSummary(await getCatalog());
     } catch (err: any) {
@@ -650,12 +689,12 @@ async function runSalesFunnelInner(
         }
         return { role: "assistant" as const, content: texto };
       });
-      // Remove respostas-robô do histórico pra não contaminar o tom
       history = history.filter((m) => {
         if (m.role !== "assistant") return true;
         const c = m.content || "";
         if (/em que posso te ajudar na festa\?/i.test(c)) return false;
         if (/me conta a data e o clima da festa/i.test(c)) return false;
+        if (/pode me contar com calma o que você precisa/i.test(c)) return false;
         return true;
       });
       if (!ctx.vendedorId && data?.conversa?.vendedorId) {
@@ -678,6 +717,14 @@ async function runSalesFunnelInner(
     history.push({ role: "user", content: params.userMessage });
   }
 
+  const socialHint = opts?.socialOnly
+    ? "\nModo desta mensagem: abertura social. Acolha e espere — sem vender ainda."
+    : "";
+
+  const campaignHint = isCampaignAsk(params.userMessage)
+    ? "\nO cliente perguntou de campanha: use os posts abaixo e explique a oferta ativa com carinho."
+    : "";
+
   const contextBlock = [
     `waId/telefone: ${params.waId}`,
     `Nome: ${params.contactName || "—"}`,
@@ -685,7 +732,11 @@ async function runSalesFunnelInner(
     `cliente: ${params.cliente ? `${params.cliente.nome} (${params.cliente.telefone})` : "novo"}`,
     `festaId: ${ctx.festaId || "nenhuma"}`,
     catalogText || null,
-    postsText ? `Posts Instagram:\n${postsText}` : null,
+    postsText
+      ? `Campanhas/posts ativos do Instagram (use quando fizer sentido):\n${postsText}`
+      : "Nenhum post Instagram carregado agora.",
+    socialHint || null,
+    campaignHint || null,
   ]
     .filter(Boolean)
     .join("\n");
@@ -696,61 +747,64 @@ async function runSalesFunnelInner(
     ...history,
   ];
 
-  const models = uniqueModels(TOOL_MODELS, freeModeles);
+  const models = resolveChatModels();
+  console.log(`[funil] modelos na fila: ${models.slice(0, 3).join(", ")}...`);
 
-  // 1) Tenta com tools
-  try {
-    const messages = [...baseMessages];
-    let replyText = "";
-    for (let step = 0; step < 6; step++) {
-      const completion = await openRouterChat({
-        messages,
-        withTools: true,
-        models,
-      });
-      const choice = completion.choices?.[0]?.message;
-      if (!choice) break;
-
-      const toolCalls = normalizeToolCalls(choice);
-      if (toolCalls.length) {
-        messages.push({
-          role: "assistant",
-          content: choice.content ?? null,
-          tool_calls: toolCalls.map((c) => ({
-            id: c.id,
-            type: "function" as const,
-            function: { name: c.name, arguments: c.arguments },
-          })),
+  // 1) Tools (exceto abertura social)
+  if (!opts?.forceNoTools) {
+    try {
+      const messages = [...baseMessages];
+      let replyText = "";
+      for (let step = 0; step < 6; step++) {
+        const completion = await openRouterChat({
+          messages,
+          withTools: true,
+          models,
         });
-        for (const call of toolCalls) {
-          let toolResult: unknown;
-          try {
-            toolResult = await dispatchTool(call.name, call.arguments, ctx);
-          } catch (toolErr: any) {
-            toolResult = {
-              ok: false,
-              error: toolErr?.message || "erro na tool",
-            };
-          }
-          messages.push({
-            role: "tool",
-            tool_call_id: call.id,
-            name: call.name,
-            content: JSON.stringify(toolResult),
-          });
-        }
-        continue;
-      }
+        const choice = completion.choices?.[0]?.message;
+        if (!choice) break;
 
-      replyText = sanitizeReply(String(choice.content ?? ""));
-      break;
+        const toolCalls = normalizeToolCalls(choice);
+        if (toolCalls.length) {
+          messages.push({
+            role: "assistant",
+            content: choice.content ?? null,
+            tool_calls: toolCalls.map((c) => ({
+              id: c.id,
+              type: "function" as const,
+              function: { name: c.name, arguments: c.arguments },
+            })),
+          });
+          for (const call of toolCalls) {
+            let toolResult: unknown;
+            try {
+              toolResult = await dispatchTool(call.name, call.arguments, ctx);
+            } catch (toolErr: any) {
+              toolResult = {
+                ok: false,
+                error: toolErr?.message || "erro na tool",
+              };
+            }
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              name: call.name,
+              content: JSON.stringify(toolResult),
+            });
+          }
+          continue;
+        }
+
+        replyText = sanitizeReply(String(choice.content ?? ""));
+        break;
+      }
+      if (replyText) return { responseText: replyText, festaId: ctx.festaId };
+    } catch (err: any) {
+      console.warn("[funil] modo tools falhou:", err?.message || err);
     }
-    if (replyText) return { responseText: replyText, festaId: ctx.festaId };
-  } catch (err: any) {
-    console.warn("[funil] modo tools falhou:", err?.message || err);
   }
 
-  // 2) Texto puro (com catálogo no prompt)
+  // 2) Texto puro
   try {
     const completion = await openRouterChat({
       messages: baseMessages,
@@ -765,7 +819,13 @@ async function runSalesFunnelInner(
     console.warn("[funil] modo texto falhou:", err?.message || err);
   }
 
-  // 3) generateAI legado
+  if (isCampaignAsk(params.userMessage)) {
+    return {
+      responseText: campaignFallbackReply(params.posts, params.contactName),
+      festaId: ctx.festaId,
+    };
+  }
+
   const legacy = sanitizeReply(
     await generateAIResponse(
       params.userMessage,

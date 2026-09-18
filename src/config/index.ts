@@ -30,10 +30,15 @@ export default {
     apiKey: process.env.OPENAI_API_KEY
   },
   openrout: {
-    apiKey: process.env.OPENROUTE_API_KEY,
-    url:  process.env.OPENROUTE_URL,
-    openUrl: process.env.URL_OPENROUTE,
-    //model: process.env.OPENROUTE_MODEL
+    apiKey: process.env.OPENROUTE_API_KEY || process.env.OPENROUTER_API_KEY,
+    url:  process.env.OPENROUTE_URL || process.env.OPENROUTER_URL,
+    openUrl: process.env.URL_OPENROUTE || process.env.OPENROUTER_CHAT_URL,
+    /** Modelo principal (recomendado: openai/gpt-4o-mini ou anthropic/claude-3.5-haiku) */
+    model:
+      process.env.OPENROUTE_MODEL ||
+      process.env.OPENROUTER_MODEL ||
+      process.env.AI_MODEL ||
+      "",
   },
   
   djdecor: {
@@ -43,23 +48,48 @@ export default {
 
 };
 
-/*export const client = new OpenAI({ 
-  apiKey: process.env.OPENROUTE_API_KEY,
-  baseURL: process.env.OPENROUTE_URL || 'https://openrouter.ai/api/v1'
-});*/
+/**
+ * Ordem de modelos para a Debysinha.
+ * 1) OPENROUTE_MODEL (pago/inteligente) — defina no Render
+ * 2) fallbacks bons no OpenRouter
+ * 3) free só como último recurso
+ */
+export function resolveChatModels(): string[] {
+  const preferred = String(
+    process.env.OPENROUTE_MODEL ||
+      process.env.OPENROUTER_MODEL ||
+      process.env.AI_MODEL ||
+      ""
+  )
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-/*twilio: {
-    accountSid: process.env.TWILIO_ACCOUNT_SID,
-    authToken: process.env.TWILIO_AUTH_TOKEN,
-    whatsappNumber: process.env.TWILIO_WHATSAPP_NUMBER
-  },*/
+  const smartFallbacks = [
+    "openai/gpt-4o-mini",
+    "google/gemini-2.5-flash",
+    "anthropic/claude-3.5-haiku",
+    "openai/gpt-4o",
+  ];
 
- // Lista de modelos (OpenRouter). Evitar IDs inventados tipo gpt-5.x no topo.
- export const freeModeles = [
-   "openrouter/free",
-   "qwen/qwen3-next-80b-a3b-instruct:free",
-   "google/gemma-4-31b-it:free",
-   "openai/gpt-oss-120b:free",
-   "nvidia/nemotron-3-ultra-550b-a55b:free",
- ];
+  const freeFallbacks = [
+    "openrouter/free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+    "google/gemma-4-31b-it:free",
+    "openai/gpt-oss-120b:free",
+  ];
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of [...preferred, ...smartFallbacks, ...freeFallbacks]) {
+    if (!m || seen.has(m)) continue;
+    if (/^gpt-5\./i.test(m)) continue;
+    seen.add(m);
+    out.push(m);
+  }
+  return out;
+}
+
+ /** @deprecated use resolveChatModels() */
+ export const freeModeles = resolveChatModels();
   

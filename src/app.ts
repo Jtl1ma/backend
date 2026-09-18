@@ -10,7 +10,7 @@ import { instagramRouter } from './routes/instagram';
 import { adminRouter } from './routes/admin';
 import { startReminderScheduler } from './services/reminderService';
 import { authMiddleware } from './middleware/auth';
-import config from './config';
+import config, { resolveChatModels } from './config';
 import ngrok from '@ngrok/ngrok';
 import { Server } from 'socket.io';
 import http from 'http';
@@ -93,7 +93,15 @@ async function startServer() {
       res.json({
         status: 'online',
         timestamp: new Date().toISOString(),
-        version: '1.0.9',
+        version: '1.1.0',
+        ai: {
+          preferredModel:
+            config.openrout?.model ||
+            process.env.OPENROUTE_MODEL ||
+            process.env.OPENROUTER_MODEL ||
+            null,
+          modelQueue: resolveChatModels().slice(0, 4),
+        },
         crm: {
           enabled: djDecorClient.isEnabled(),
           baseUrl: config.djdecor?.baseUrl || process.env.DJDECOR_API_URL || null,

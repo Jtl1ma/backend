@@ -23,22 +23,32 @@ router.get('/', (req: Request, res: Response) => {
 
 // Webhook para receber mensagens
 router.post('/', async (req: Request, res: Response) => {
-  try {
-    const { body } = req;
+  // Responde rápido à Meta; processa em seguida
+  res.sendStatus(200);
 
-    // Verificar se é uma notificação de mensagem
-    if (body.entry && body.entry[0]?.changes[0]?.value?.messages) {
-      const messages = body.entry[0].changes[0].value.messages;
-      
-      for (const message of messages) {
-        // Processar apenas mensagens de texto
+  try {
+    const body = req.body;
+    const messages = body?.entry?.[0]?.changes?.[0]?.value?.messages;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      console.warn('[webhook] payload sem messages:', JSON.stringify(body)?.slice(0, 300));
+      return;
+    }
+
+    const contacts = body.entry[0].changes[0].value.contacts;
+
+    for (const message of messages) {
+      try {
         if (message.type === 'text') {
           const waId = message.from;
-          const text = message.text.body;
+          const text = message.text?.body;
+          if (!waId || !text) {
+            console.warn('[webhook] mensagem texto incompleta', message?.id);
+            continue;
+          }
           const timestamp = message.timestamp;
-          const contacts = body.entry[0].changes[0].value.contacts;
           const contactName = contacts?.[0]?.profile?.name || 'Cliente';
 
+          console.log(`[webhook] inbound de ${waId}: ${String(text).slice(0, 80)}`);
           await processIncomingMessage({
             from: waId,
             text: text,
@@ -46,19 +56,17 @@ router.post('/', async (req: Request, res: Response) => {
             contactName: contactName,
             messageId: message.id || undefined,
           });
-        }
-
-        // Processar mensagens interativas (botões)
-        if (message.type === 'interactive') {
+        } else if (message.type === 'interactive') {
           await handleInteractiveMessage(message);
+        } else {
+          console.log(`[webhook] tipo ignorado: ${message.type}`);
         }
+      } catch (err) {
+        console.error('[webhook] falha ao processar mensagem:', err);
       }
     }
-
-    res.sendStatus(200);
   } catch (error) {
     console.error('Erro no webhook:', error);
-    res.sendStatus(500);
   }
 });
 
@@ -148,8 +156,7 @@ async function fetchInstagramPosts() {
   };
 
   const response = await axios.get(url, { params });
-
-  return response.data.data;
+  return response.data?.data || [];
 }
 
 export { router as webhookRouter };

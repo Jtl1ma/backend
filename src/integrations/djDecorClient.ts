@@ -195,6 +195,34 @@ export class DjDecorClient {
     return this.findByTelefone(cliente);
   }
 
+  async pingCrm(): Promise<{ ok: boolean; status?: number; error?: string }> {
+    if (!this.enabled) {
+      return { ok: false, error: "DJDECOR_API_URL/TOKEN ausentes" };
+    }
+    try {
+      const dia = new Date().toLocaleDateString("en-CA", {
+        timeZone: process.env.TIMEZONE || "America/Sao_Paulo",
+      });
+      const response = await this.client.get("/api/integracoes/ia/agenda", {
+        params: { data: dia },
+        validateStatus: () => true,
+      });
+      if (response.status >= 200 && response.status < 300) {
+        return { ok: true, status: response.status };
+      }
+      return {
+        ok: false,
+        status: response.status,
+        error:
+          typeof response.data === "object"
+            ? JSON.stringify(response.data)
+            : String(response.data),
+      };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  }
+
   private assertEnabled() {
     if (!this.enabled) {
       throw new Error(

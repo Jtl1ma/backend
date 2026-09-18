@@ -88,14 +88,18 @@ async function startServer() {
     app.use('/api/admin', authMiddleware, adminRouter);
 
     // Health check
-    app.get('/health', (req, res) => {
+    app.get('/health', async (req, res) => {
+      const crmPing = await djDecorClient.pingCrm();
       res.json({
         status: 'online',
         timestamp: new Date().toISOString(),
-        version: '1.0.1',
+        version: '1.0.2',
         crm: {
           enabled: djDecorClient.isEnabled(),
           baseUrl: config.djdecor?.baseUrl || process.env.DJDECOR_API_URL || null,
+          reachable: crmPing.ok,
+          status: crmPing.status ?? null,
+          error: crmPing.error ?? null,
         },
       });
     });

@@ -91,15 +91,9 @@ async function sendAndMirrorToCrm(params: {
 
 export async function processIncomingMessage(message: WhatsAppMessage) {
   console.log("[DEBUG] processIncomingMessage iniciado:", message);
-  const db = getDatabase();
   const { from, text } = message;
 
-  await db.run(
-    "INSERT OR REPLACE INTO contacts (wa_id, name, phone, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
-    [from, message.contactName || null, from]
-  );
-
-  // Espelha no CRM (inbox) — não bloqueia se CRM estiver fora
+  // Espelha no CRM ANTES de qualquer coisa local (SQLite/IA/Meta)
   const crm = await djDecorClient.syncInbound({
     waId: from,
     texto: text,
@@ -121,6 +115,16 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
   }
 
   const conversaId = crm?.conversaId ?? null;
+
+  try {
+    const db = getDatabase();
+    await db.run(
+      "INSERT OR REPLACE INTO contacts (wa_id, name, phone, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+      [from, message.contactName || null, from]
+    );
+  } catch (err) {
+    console.warn("[sqlite] falha ao salvar contato (seguindo mesmo assim):", err);
+  }
 
   // Humano assumiu no CRM ou cliente recorrente → não deixa a Debysinha responder
   if (crm && !crm.shouldRunAgent) {
@@ -158,10 +162,15 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
 
   const sentiment = await analyzeSentiment(text);
 
-  await db.run(
-    "INSERT INTO conversations (wa_id, message, sentiment, is_weekend) VALUES (?, ?, ?, ?)",
-    [from, text, sentiment, isWeekend() ? 1 : 0]
-  );
+  try {
+    const db = getDatabase();
+    await db.run(
+      "INSERT INTO conversations (wa_id, message, sentiment, is_weekend) VALUES (?, ?, ?, ?)",
+      [from, text, sentiment, isWeekend() ? 1 : 0]
+    );
+  } catch (err) {
+    console.warn("[sqlite] falha ao salvar conversa local:", err);
+  }
 
   const weekend = isWeekend();
   const posts = await fetchInstagramPosts();

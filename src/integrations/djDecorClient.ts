@@ -72,6 +72,13 @@ export interface CatalogoAddon {
   tipo: string;
 }
 
+export interface CatalogoBola {
+  id: string;
+  nome: string;
+  descricao?: string | null;
+  valorTabela: number;
+}
+
 /**
  * Cliente HTTP do CRM dj-decor (API no Render).
  * Meta continua no backend IA; CRM guarda inbox + agenda + orçamentos.
@@ -239,7 +246,11 @@ export class DjDecorClient {
     return this.checarAgenda(dia);
   }
 
-  async listCatalogo(): Promise<{ kits: CatalogoKit[]; addons: CatalogoAddon[] }> {
+  async listCatalogo(): Promise<{
+    kits: CatalogoKit[];
+    addons: CatalogoAddon[];
+    bolas?: CatalogoBola[];
+  }> {
     this.assertEnabled();
     const response = await this.client.get("/api/integracoes/ia/catalogo", {
       headers: this.authHeaders(),

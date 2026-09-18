@@ -2,6 +2,7 @@ import config, { resolveChatModels } from "../config";
 import {
   djDecorClient,
   type CatalogoAddon,
+  type CatalogoBola,
   type CatalogoKit,
   type CriarOrcamentoInput,
 } from "../integrations/djDecorClient";
@@ -23,8 +24,10 @@ Como ajudar (obrigatório):
 - "130" / "de 130" na Festa na Mesa = R$130 (festa-mesa-com-mesa), NÃO é arco de 130cm.
 - Festa na Mesa: R$100 / R$130 / R$160 (pegue e monte; leva/busca +R$30).
 - Quer mudar kit ou festa maior: confirme a troca e sugira 2 opções — não ignore e não force fechar a venda antiga.
+- Se perguntar o que vem no kit / itens / entrada de bolas: explique com a lista oficial do catálogo (itens do kit + opções de bolas). NÃO diga "posso registrar" até ela confirmar.
+- NUNCA escreva raciocínio interno ("preciso", "devo", "o contexto diz"). Só a mensagem final pra cliente.
 - Dados completos: resuma e peça OK pra registrar (criar_venda). Observações/notas com todos os detalhes.
-- 2–5 frases. Emojis 0–2. Tom humano.
+- 2–5 frases (lista de itens do kit pode ser em linhas). Emojis 0–2. Tom humano.
 
 Tools: listar_catalogo / montar_orcamento / checar_agenda / criar_venda (só com confirmação). Não invente preço. Reclamação/desconto especial → escalar_humano.
 `;
@@ -72,9 +75,22 @@ function isExploringOptions(text: string): boolean {
     wantsKitChange(text) ||
     isVaguePriceAsk(text) ||
     isUndecided(text) ||
-    /\b(tem\s+(uma\s+)?festa|tem\s+alguma|o\s+que\s+voc[eê]\s+tem|me\s+mostra|op[cç][oõ]es|outra\s+op[cç][aã]o|mais\s+simples|compact[oa]|intimista|n[aã]o\s+muito\s+grande|um\s+pouco\s+menor)\b/i.test(
+    isAskingKitDetails(text) ||
+    /\b(tem\s+(uma\s+)?festa|tem\s+alguma|o\s+que\s+voc[eê]\s+tem|me\s+mostra|op[cç][oõ]es|outra\s+op[cç][aã]o|mais\s+simples|compact[oa]|intimista|n[aã]o\s+muito\s+grande|um\s+pouco\s+menor|entrada\s+de\s+bolas)\b/i.test(
       text
     )
+  );
+}
+
+function isAskingKitDetails(text: string): boolean {
+  return /\b(o\s+que\s+vem|quais\s+(os\s+)?itens|o\s+que\s+inclui|o\s+que\s+tem\s+n[ea]|o\s+que\s+acompanha|detalh(e|es|ar)?\s+(do|da|o)?\s*kit|me\s+fala\s+os\s+itens)\b/i.test(
+    text
+  );
+}
+
+function wantsEntradaBolas(text: string): boolean {
+  return /\b(entrada\s+de\s+bolas|t[uú]nel\s+(de\s+)?(entrada|bolas)|arco\s+de\s+entrada|bolas\s+na\s+entrada)\b/i.test(
+    text
   );
 }
 
@@ -161,6 +177,110 @@ function formatKitLine(k: CatalogoKit): string {
         ? " · pegue e monte"
         : "";
   return `• *${k.nome}* — R$${k.valorEquipe}${pe}`;
+}
+
+function resolveKitFromText(
+  cat: { kits: CatalogoKit[] },
+  text: string,
+  preferredId?: string | null
+): CatalogoKit | null {
+  if (preferredId) {
+    const hit = cat.kits.find((k) => k.id === preferredId);
+    if (hit) return hit;
+  }
+  const t = text.toLowerCase();
+  if (/festa\s+m[eé]dia|kit\s+(de\s+)?festa\s+m[eé]dia|\bmedia\b/i.test(t)) {
+    return cat.kits.find((k) => k.id === "media") || null;
+  }
+  if (/intermedi/i.test(t)) {
+    return cat.kits.find((k) => k.id === "intermediaria") || null;
+  }
+  if (/pocket/i.test(t)) {
+    return cat.kits.find((k) => k.id === "pocket") || null;
+  }
+  if (/6\s*m|6\s*metros/i.test(t)) {
+    return cat.kits.find((k) => k.id === "decoracao-6m") || null;
+  }
+  if (/4\s*m|4\s*metros/i.test(t)) {
+    return cat.kits.find((k) => k.id === "decoracao-4m") || null;
+  }
+  if (/festa\s+na\s+mesa.*160|160.*festa\s+na\s+mesa/i.test(t)) {
+    return cat.kits.find((k) => k.id === "festa-mesa-mesa-bolas") || null;
+  }
+  if (/festa\s+na\s+mesa.*130|130.*festa\s+na\s+mesa|com\s+mesa/i.test(t)) {
+    return cat.kits.find((k) => k.id === "festa-mesa-com-mesa") || null;
+  }
+  if (/festa\s+na\s+mesa/i.test(t)) {
+    return cat.kits.find((k) => k.id === "festa-mesa") || null;
+  }
+  return null;
+}
+
+function kitDetailsAssistReply(params: {
+  cat: {
+    kits: CatalogoKit[];
+    addons: CatalogoAddon[];
+    bolas?: CatalogoBola[];
+  };
+  userMessage: string;
+  contactName?: string | null;
+  preferredKitId?: string | null;
+}): string {
+  const { cat, userMessage, contactName, preferredKitId } = params;
+  const nome = contactName?.split(/\s+/)[0];
+  const prefix = nome ? `${nome}, ` : "";
+  const kit =
+    resolveKitFromText(cat, userMessage, preferredKitId) ||
+    resolveKitFromText(cat, preferredKitId || "", preferredKitId);
+
+  if (!kit) {
+    return (
+      prefix +
+      "me confirma qual kit você quer ver os itens — Intermediária, Média, 4M…? Aí eu te passo a listinha certinha 💛"
+    );
+  }
+
+  const itens = (kit.itens || []).map((i) => `• ${i}`).join("\n");
+  const pe =
+    kit.valorPegueEMonte != null
+      ? ` (pegue e monte R$${kit.valorPegueEMonte})`
+      : "";
+  let reply =
+    prefix +
+    `no *${kit.nome}* — R$${kit.valorEquipe}${pe} — vem:\n` +
+    (itens || "• (itens sob consulta)") ;
+
+  if (wantsEntradaBolas(userMessage)) {
+    const bolas = (cat.bolas || []).filter((b) =>
+      /entrada|t[uú]nel/i.test(b.nome)
+    );
+    if (bolas.length) {
+      reply +=
+        "\n\nPra *entrada de bolas*, posso acrescentar por exemplo:\n" +
+        bolas
+          .slice(0, 4)
+          .map((b) => `• ${b.nome} — R$${b.valorTabela}`)
+          .join("\n");
+    } else {
+      const addons = cat.addons.filter((a) =>
+        /bola|arco|entrada|bal[aã]o/i.test(a.nome)
+      );
+      if (addons.length) {
+        reply +=
+          "\n\nPra bolas/entrada, tenho também:\n" +
+          addons
+            .slice(0, 4)
+            .map((a) => `• ${a.nome} — R$${a.valor}`)
+            .join("\n");
+      } else {
+        reply +=
+          "\n\nEntrada de bolas a gente monta à parte — me diz se prefere arco simples, elaborado ou túnel que eu te passo o valor certinho.";
+      }
+    }
+  }
+
+  reply += "\nQuer que eu feche o orçamento com isso?";
+  return reply;
 }
 
 /**
@@ -331,8 +451,19 @@ export function extractSaleSlots(transcript: string): SaleSlots {
 
   // Se está explorando tamanho ("menor", "não muito grande"), NÃO herda kit antigo
   const exploring = isExploringOptions(lastMsg);
+  const askingDetails = isAskingKitDetails(lastMsg);
+  const choseKitExplicitly =
+    /\b(quero\s+(um\s+)?kit|kit\s+de\s+festa|festa\s+m[eé]dia|intermedi[aá]ria|pocket|6\s*m|4\s*m|festa\s+na\s+mesa)\b/i.test(
+      lastMsg
+    ) ||
+    /\b(quero\s+(um\s+)?kit|kit\s+de\s+festa|festa\s+m[eé]dia)\b/i.test(
+      recentKitText
+    );
 
-  if (!exploring || inferKitBand(lastMsg) === "grande") {
+  if (
+    (!exploring || choseKitExplicitly || askingDetails || inferKitBand(lastMsg) === "grande") &&
+    !(/n[aã]o\s+muito\s+grande|um\s+pouco\s+menor/i.test(lastMsg) && !choseKitExplicitly)
+  ) {
     if (/\b(6\s*m|6\s*metros|decora[cç][aã]o\s*6|festa\s+grande\s+de\s*6)\b/i.test(recentKitText)) {
       kitCatalogo = "decoracao-6m";
       valor = 980;
@@ -341,17 +472,14 @@ export function extractSaleSlots(transcript: string): SaleSlots {
       kitCatalogo = "decoracao-4m";
       valor = 730;
       pegueEMonte = false;
-    }
-  }
-
-  if (!kitCatalogo) {
-    if (/\bkit\s*festa\s*m[eé]dia|festa\s+m[eé]dia\b/i.test(recentKitText) && !exploring) {
+    } else if (/\bkit\s*(de\s+)?festa\s*m[eé]dia|festa\s+m[eé]dia\b/i.test(recentKitText)) {
       kitCatalogo = "media";
       valor = 450;
-    } else if (/\bintermedi[aá]ria\b/i.test(recentKitText) && !exploring) {
+      pegueEMonte = false;
+    } else if (/\bintermedi[aá]ria\b/i.test(recentKitText)) {
       kitCatalogo = "intermediaria";
       valor = 350;
-    } else if (/\bpocket\b/i.test(recentKitText) && !exploring) {
+    } else if (/\bpocket\b/i.test(recentKitText)) {
       kitCatalogo = "pocket";
       valor = 250;
     }
@@ -383,15 +511,15 @@ export function extractSaleSlots(transcript: string): SaleSlots {
     pegueEMonte = true;
   }
 
-  // Explorando "menor / não muito grande" → limpa kit grande herdado
-  if (exploring && (inferKitBand(lastMsg) === "medio" || inferKitBand(lastMsg) === "pequeno" || inferKitBand(lastMsg) === "mesa")) {
-    if (kitCatalogo === "decoracao-6m" || kitCatalogo === "decoracao-4m") {
-      kitCatalogo = null;
-      valor = null;
-    }
-  }
-  if (exploring && !/\b(100|130|160|pocket|intermedi|m[eé]dia|6\s*m|4\s*m|festa-mesa)\b/i.test(lastMsg)) {
-    // Ainda escolhendo — não trava kit
+  // Explorando "menor / não muito grande" sem ter escolhido kit → limpa herdado
+  if (
+    exploring &&
+    !choseKitExplicitly &&
+    !askingDetails &&
+    (inferKitBand(lastMsg) === "medio" ||
+      inferKitBand(lastMsg) === "pequeno" ||
+      inferKitBand(lastMsg) === "mesa")
+  ) {
     kitCatalogo = null;
     valor = null;
   }
@@ -792,7 +920,11 @@ interface FunnelContext {
   festaId?: string | null;
 }
 
-let catalogCache: { kits: CatalogoKit[]; addons: CatalogoAddon[] } | null = null;
+let catalogCache: {
+  kits: CatalogoKit[];
+  addons: CatalogoAddon[];
+  bolas?: CatalogoBola[];
+} | null = null;
 let catalogCacheAt = 0;
 
 async function getCatalog() {
@@ -882,7 +1014,8 @@ function choiceText(choice: any): string {
       .join("")
       .trim();
   }
-  return String(choice?.reasoning || "").trim();
+  // Nunca usar reasoning/thinking como mensagem ao cliente
+  return "";
 }
 
 function sanitizeReply(text: string): string {
@@ -890,6 +1023,17 @@ function sanitizeReply(text: string): string {
   if (!t) return "";
   if (/^user safety/i.test(t) || t.toLowerCase() === "safe") return "";
   if (BAD_OPENER.test(t)) return "";
+  // Bloqueia vazamento de raciocínio interno do modelo
+  if (
+    /vamos entender o contexto|preciso responder|devo |o contexto diz|n[aã]o tenho acesso ao cat[aá]logo|estruturar a resposta|alternativamente|vou fazer assim|racioc[ií]nio|chain of thought|como IA|para ser seguro/i.test(
+      t
+    )
+  ) {
+    return "";
+  }
+  if (t.length > 700 && /\b(preciso|devo|vamos|o ideal [eé])\b/i.test(t)) {
+    return "";
+  }
   return t;
 }
 
@@ -917,6 +1061,12 @@ async function dispatchTool(
           id: a.id,
           nome: a.nome,
           valor: a.valor,
+        })),
+        bolas: (cat.bolas || []).map((b) => ({
+          id: b.id,
+          nome: b.nome,
+          valorTabela: b.valorTabela,
+          descricao: b.descricao,
         })),
       };
     }
@@ -1152,6 +1302,13 @@ function contextualFallback(
     return campaignFallbackReply(posts, contactName, slots);
   }
 
+  if (isAskingKitDetails(userMessage) || wantsEntradaBolas(userMessage)) {
+    return (
+      (contactName?.split(/\s+/)[0] ? `${contactName.split(/\s+/)[0]}, ` : "") +
+      "claro — me confirma o kit (Média, Intermediária…) que eu te passo os itens e, se quiser, as opções de entrada de bolas com valor 💛"
+    );
+  }
+
   if (
     isVaguePriceAsk(userMessage) ||
     isUndecided(userMessage) ||
@@ -1336,6 +1493,31 @@ async function runSalesFunnelInner(
   const slots = extractSaleSlots(transcript);
   console.log("[funil] slots:", formatSlotsBlock(slots));
 
+  // Pergunta o que vem no kit / entrada de bolas → lista oficial, sem fechar venda
+  if (
+    (isAskingKitDetails(params.userMessage) || wantsEntradaBolas(params.userMessage)) &&
+    djDecorClient.isEnabled()
+  ) {
+    try {
+      const cat = await getCatalog();
+      // Prefer kit da mensagem atual; se só perguntou itens, usa o das slots recentes
+      const preferred =
+        extractSaleSlots(`IN: ${params.userMessage}`).kitCatalogo ||
+        slots.kitCatalogo;
+      return {
+        responseText: kitDetailsAssistReply({
+          cat,
+          userMessage: params.userMessage,
+          contactName: params.contactName,
+          preferredKitId: preferred,
+        }),
+        festaId: ctx.festaId,
+      };
+    } catch (err: any) {
+      console.warn("[funil] detalhe do kit falhou:", err?.message || err);
+    }
+  }
+
   // Orientação humana: catálogo / valor vago / troca / tamanho — NÃO despejar lista nem fechar venda antiga
   if (isExploringOptions(params.userMessage) && djDecorClient.isEnabled()) {
     try {
@@ -1424,8 +1606,8 @@ async function runSalesFunnelInner(
     isVaguePriceAsk(params.userMessage) || isUndecided(params.userMessage)
       ? "Cliente sem ideia clara / só pediu valor: ENTENDA (ocasião + tamanho) com 1 pergunta. NÃO liste todos os preços. No máx. 2–3 opções depois."
       : null,
-    isCatalogAsk(params.userMessage) || wantsKitChange(params.userMessage)
-      ? "Catálogo/mudança: sugira no máximo 2–3 kits do Catálogo alinhados ao pedido. Use campanhas do Instagram se couber. Não despeje a lista toda."
+    isExploringOptions(params.userMessage)
+      ? "Cliente explorando tamanho/opções (menor, não muito grande, etc.): sugira 2–3 kits alinhados. PROIBIDO dizer 'posso registrar' com kit antigo."
       : null,
     "PROIBIDO recomeçar a conversa ou fingir que é o primeiro contato.",
   ]

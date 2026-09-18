@@ -33,12 +33,12 @@ export default {
     apiKey: process.env.OPENROUTE_API_KEY || process.env.OPENROUTER_API_KEY,
     url:  process.env.OPENROUTE_URL || process.env.OPENROUTER_URL,
     openUrl: process.env.URL_OPENROUTE || process.env.OPENROUTER_CHAT_URL,
-    /** Modelo principal (recomendado: openai/gpt-4o-mini ou anthropic/claude-3.5-haiku) */
+    /** Modelo principal — padrão GPT-5 */
     model:
       process.env.OPENROUTE_MODEL ||
       process.env.OPENROUTER_MODEL ||
       process.env.AI_MODEL ||
-      "",
+      "openai/gpt-5",
   },
   
   djdecor: {
@@ -50,26 +50,28 @@ export default {
 
 /**
  * Ordem de modelos para a Debysinha.
- * 1) OPENROUTE_MODEL (pago/inteligente) — defina no Render
- * 2) fallbacks bons no OpenRouter
- * 3) free só como último recurso
+ * 1) OPENROUTE_MODEL (se definido no Render)
+ * 2) Família GPT-5 (bem mais natural que 4o-mini)
+ * 3) Fallbacks pagos e free
  */
 export function resolveChatModels(): string[] {
   const preferred = String(
     process.env.OPENROUTE_MODEL ||
       process.env.OPENROUTER_MODEL ||
       process.env.AI_MODEL ||
-      ""
+      "openai/gpt-5"
   )
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 
   const smartFallbacks = [
-    "openai/gpt-4o-mini",
+    "openai/gpt-5",
+    "openai/gpt-5-mini",
+    "openai/gpt-5.4",
+    "openai/gpt-4o",
     "google/gemini-2.5-flash",
     "anthropic/claude-3.5-haiku",
-    "openai/gpt-4o",
   ];
 
   const freeFallbacks = [
@@ -83,7 +85,8 @@ export function resolveChatModels(): string[] {
   const out: string[] = [];
   for (const m of [...preferred, ...smartFallbacks, ...freeFallbacks]) {
     if (!m || seen.has(m)) continue;
-    if (/^gpt-5\./i.test(m)) continue;
+    // Só ignora IDs inventados sem provider (ex.: "gpt-5.5" solto)
+    if (/^gpt-5(\.|$)/i.test(m) && !m.includes("/")) continue;
     seen.add(m);
     out.push(m);
   }

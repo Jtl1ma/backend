@@ -93,13 +93,12 @@ async function startServer() {
       res.json({
         status: 'online',
         timestamp: new Date().toISOString(),
-        version: '1.1.0',
+        version: '1.1.1',
         ai: {
           preferredModel:
             config.openrout?.model ||
             process.env.OPENROUTE_MODEL ||
-            process.env.OPENROUTER_MODEL ||
-            null,
+            "openai/gpt-5",
           modelQueue: resolveChatModels().slice(0, 4),
         },
         crm: {

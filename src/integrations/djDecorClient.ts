@@ -17,6 +17,19 @@ export interface AgendaResult {
   }>;
 }
 
+export interface SyncInboundResult {
+  ok: boolean;
+  conversaId: string;
+  modo: "AI" | "HUMANO" | "HIBRIDO";
+  status: string;
+  shouldRunAgent: boolean;
+  handoffRecorrente: boolean;
+  sugerido: { vendedorId: string; vendedorNome: string } | null;
+  cliente: { id: string; nome: string; telefone: string } | null;
+  festaId: string | null;
+  created: boolean;
+}
+
 export interface CriarOrcamentoInput {
   nomeCliente: string;
   telefone: string;
@@ -31,12 +44,12 @@ export interface CriarOrcamentoInput {
   itensExtras?: string[];
   observacoes?: string | null;
   vendedorId?: string;
+  conversaId?: string;
 }
 
 /**
  * Cliente HTTP do CRM dj-decor (API no Render).
- * Base: DJDECOR_API_URL (ex.: https://dj-decor.onrender.com)
- * Auth:  DJDECOR_API_TOKEN (= IA_SERVICE_TOKEN no CRM)
+ * Meta continua no backend IA; CRM guarda inbox + agenda + orçamentos.
  */
 export class DjDecorClient {
   private client: AxiosInstance;
@@ -83,8 +96,56 @@ export class DjDecorClient {
     return this.enabled;
   }
 
-  /** Agenda do dia — quantas festas e se há conflito de horário. */
-  async checarAgenda(data: string, horarioMontagem?: string): Promise<AgendaResult> {
+  async syncInbound(input: {
+    waId: string;
+    texto?: string | null;
+    contatoNome?: string | null;
+    providerMessageId?: string | null;
+    timestamp?: string | Date;
+  }): Promise<SyncInboundResult | null> {
+    if (!this.enabled) return null;
+    try {
+      const response = await this.client.post<SyncInboundResult>(
+        "/api/integracoes/ia/mensagens/inbound",
+        input
+      );
+      return response.data;
+    } catch (err: any) {
+      console.error(
+        "[dj-decor] syncInbound falhou:",
+        err?.response?.data || err.message
+      );
+      return null;
+    }
+  }
+
+  async syncOutbound(input: {
+    waId: string;
+    texto: string;
+    conversaId?: string;
+    providerMessageId?: string | null;
+    autorTipo?: "AI" | "HUMANO" | "SISTEMA";
+  }): Promise<{ ok: boolean; conversaId?: string } | null> {
+    if (!this.enabled) return null;
+    try {
+      const response = await this.client.post(
+        "/api/integracoes/ia/mensagens/outbound",
+        input
+      );
+      return response.data;
+    } catch (err: any) {
+      console.error(
+        "[dj-decor] syncOutbound falhou:",
+        err?.response?.data || err.message
+      );
+      return null;
+    }
+  }
+
+  async checarAgenda(
+    data: string,
+    horarioMontagem?: string
+  ): Promise<AgendaResult> {
     this.assertEnabled();
     const response = await this.client.get<AgendaResult>(
       "/api/integracoes/ia/agenda",
@@ -98,10 +159,6 @@ export class DjDecorClient {
     return response.data;
   }
 
-  /**
-   * Compatível com a chamada antiga getDisponibilidade().
-   * Sem data, usa o dia de hoje (America/Sao_Paulo aproximado via ISO local).
-   */
   async getDisponibilidade(data?: string): Promise<AgendaResult> {
     const dia =
       data ||
@@ -126,45 +183,6 @@ export class DjDecorClient {
     return response.data;
   }
 
-  /** @deprecated use criarOrcamento com o payload completo do CRM */
-  async createFesta(data: {
-    cliente: string;
-    dataEvento: string;
-    endereco: string;
-    horario?: string;
-    telefone?: string;
-    tema?: string;
-    valor?: number;
-  }) {
-    const dataEvento = data.dataEvento;
-    const horarioMontagem =
-      data.horario ||
-      (dataEvento.includes("T")
-        ? dataEvento
-        : `${dataEvento}T11:00:00.000Z`);
-
-    return this.criarOrcamento({
-      nomeCliente: data.cliente,
-      telefone: data.telefone || "00000000000",
-      tema: data.tema || "A definir",
-      dataEvento,
-      horarioMontagem,
-      endereco: data.endereco,
-      valor: data.valor && data.valor > 0 ? data.valor : 100,
-      pegueEMonte: false,
-    });
-  }
-
-  async updateFestaStatus(festaId: string, status: string) {
-    this.assertEnabled();
-    // Status ainda exige JWT de usuário; por enquanto só logamos.
-    // Quando o CRM expor PATCH em /integracoes/ia, trocar aqui.
-    console.warn(
-      `[dj-decor] updateFestaStatus(${festaId}, ${status}) ainda não está na API de integração`
-    );
-    return { ok: false, skipped: true };
-  }
-
   async findByTelefone(telefone: string) {
     this.assertEnabled();
     const response = await this.client.get("/api/integracoes/ia/festas", {
@@ -173,25 +191,8 @@ export class DjDecorClient {
     return response.data;
   }
 
-  /** @deprecated use findByTelefone */
   async findByCliente(cliente: string) {
     return this.findByTelefone(cliente);
-  }
-
-  async sendWebhookAtendimento(waId: string, text: string, atendente?: string) {
-    // Endpoint legado no CRM — sem token de integração (só loga).
-    const baseURL = this.client.defaults.baseURL;
-    if (!baseURL) return { ok: false, skipped: true };
-    const response = await axios.post(
-      `${baseURL}/api/webhooks/atendimento-ia`,
-      {
-        wa_id: waId,
-        mensagem: text,
-        atendente: atendente || null,
-      },
-      { timeout: 10000 }
-    );
-    return response.data;
   }
 
   private assertEnabled() {

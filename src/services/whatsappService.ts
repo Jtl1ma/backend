@@ -47,105 +47,203 @@ export interface WhatsAppMessage {
   text: string;
   timestamp: string;
   contactName: string;
+  messageId?: string;
+}
+
+/** Extrai data YYYY-MM-DD de textos tipo "20/09", "20/09/2026", "amanhã", "hoje". */
+function parseAgendaDateFromText(text: string): string | null {
+  const lower = text.toLowerCase();
+  const tz = process.env.TIMEZONE || "America/Sao_Paulo";
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+
+  if (/\bhoje\b/.test(lower)) return today;
+  if (/\bamanh[aã]\b/.test(lower)) {
+    const d = new Date(`${today}T12:00:00`);
+    d.setDate(d.getDate() + 1);
+    return d.toLocaleDateString("en-CA", { timeZone: tz });
+  }
+
+  const br = text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (br) {
+    const day = br[1].padStart(2, "0");
+    const month = br[2].padStart(2, "0");
+    let year = br[3];
+    if (!year) year = today.slice(0, 4);
+    else if (year.length === 2) year = `20${year}`;
+    return `${year}-${month}-${day}`;
+  }
+  return null;
+}
+
+async function sendAndMirrorToCrm(params: {
+  to: string;
+  text: string;
+  conversaId?: string | null;
+}) {
+  await sendMessage(params.to, params.text);
+  await djDecorClient.syncOutbound({
+    waId: params.to,
+    texto: params.text,
+    conversaId: params.conversaId || undefined,
+    autorTipo: "AI",
+  });
 }
 
 export async function processIncomingMessage(message: WhatsAppMessage) {
-  console.log('[DEBUG] processIncomingMessage iniciado:', message);
+  console.log("[DEBUG] processIncomingMessage iniciado:", message);
   const db = getDatabase();
   const { from, text } = message;
 
-  // Salvar ou atualizar contato
   await db.run(
-    'INSERT OR REPLACE INTO contacts (wa_id, name, phone, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+    "INSERT OR REPLACE INTO contacts (wa_id, name, phone, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
     [from, message.contactName || null, from]
   );
-  
-  // 1. Analisar sentimento
+
+  // Espelha no CRM (inbox) — não bloqueia se CRM estiver fora
+  const crm = await djDecorClient.syncInbound({
+    waId: from,
+    texto: text,
+    contatoNome: message.contactName || null,
+    providerMessageId: message.messageId || null,
+    timestamp: message.timestamp
+      ? new Date(Number(message.timestamp) * 1000)
+      : new Date(),
+  });
+
+  const conversaId = crm?.conversaId ?? null;
+
+  // Humano assumiu no CRM ou cliente recorrente → não deixa a Debysinha responder
+  if (crm && !crm.shouldRunAgent) {
+    if (crm.handoffRecorrente && crm.sugerido) {
+      const handoffText =
+        `Oi! Vi que você já fez festa com a gente 🎈 ` +
+        `Vou te passar para *${crm.sugerido.vendedorNome}*, ` +
+        `que já te atendeu antes.`;
+      await sendAndMirrorToCrm({
+        to: from,
+        text: handoffText,
+        conversaId,
+      });
+      await notifyHumanAttendant({
+        target: "all",
+        message: `Cliente recorrente ${message.contactName || from}: "${text}" → sugerido ${crm.sugerido.vendedorNome}`,
+        conversationId: from,
+        sendWhatsApp: true,
+      }).catch((err) =>
+        console.error("Falha notificar handoff recorrente:", err.message)
+      );
+      return { responseText: handoffText, sentiment: "neutral", skippedAi: true };
+    }
+
+    await notifyHumanAttendant({
+      target: "all",
+      message: `Nova mensagem (modo humano no CRM) de ${message.contactName || from}: "${text}"`,
+      conversationId: from,
+      sendWhatsApp: true,
+    }).catch((err) =>
+      console.error("Falha notificar modo humano:", err.message)
+    );
+    return { responseText: null, sentiment: "neutral", skippedAi: true };
+  }
+
   const sentiment = await analyzeSentiment(text);
-  
-  // 2. Salvar conversa
+
   await db.run(
-    'INSERT INTO conversations (wa_id, message, sentiment, is_weekend) VALUES (?, ?, ?, ?)',
+    "INSERT INTO conversations (wa_id, message, sentiment, is_weekend) VALUES (?, ?, ?, ?)",
     [from, text, sentiment, isWeekend() ? 1 : 0]
   );
 
-  // 3. Verificar se é fim de semana
   const weekend = isWeekend();
-  console.log('[DEBUG] Fim de semana:', weekend);
-
-  // 4. Buscar posts do Instagram
-  console.log('[DEBUG] Iniciando fetchInstagramPosts...');
   const posts = await fetchInstagramPosts();
-  console.log('[DEBUG] Posts recebidos:', posts?.length || 0, posts);
-  
-  // 5. Gerar resposta com IA
-  console.log('[DEBUG] Iniciando generateAIResponse...');
-  const responseText = await generateAIResponse(text, sentiment, weekend, posts, message.contactName);
-  console.log('[DEBUG] Resposta IA gerada:', responseText);
+  const responseText = await generateAIResponse(
+    text,
+    sentiment,
+    weekend,
+    posts,
+    message.contactName
+  );
 
-  // 6. Enviar resposta
-  console.log('[DEBUG] Enviando mensagem para:', from, 'texto:', responseText);
-  await sendMessage(from, responseText);
+  await sendAndMirrorToCrm({
+    to: from,
+    text: responseText,
+    conversaId,
+  });
 
-  // 6b. Detectar menção a atendente específico na mensagem
   const mentionedAttendant = detectAttendantMention(text);
   if (mentionedAttendant) {
-    await createTicket(from, `Solicitou falar com atendente específico: ${mentionedAttendant}. Mensagem: ${text}`);
+    await createTicket(
+      from,
+      `Solicitou falar com atendente específico: ${mentionedAttendant}. Mensagem: ${text}`
+    );
     await notifyHumanAttendant({
       target: mentionedAttendant,
       message: `Cliente solicitou falar com ${mentionedAttendant}: "${text}"`,
       conversationId: from,
       sendWhatsApp: true,
-    }).catch((err) => console.error('Falha notificar atendente específico:', err.message));
+    }).catch((err) =>
+      console.error("Falha notificar atendente específico:", err.message)
+    );
   }
 
-  // 7. Se não for fim de semana e sentimento negativo, abrir ticket e notificar atendentes
-  if (!weekend && sentiment === 'negative') {
+  if (!weekend && sentiment === "negative") {
     await createTicket(from, text);
     await notifyHumanAttendant({
-      target: 'all',
+      target: "all",
       message: `Sentimento negativo detectado: ${text}`,
       conversationId: from,
       sendWhatsApp: true,
-    }).catch((err) => console.error('Falha notificar atendentes (sentimento negativo):', err.message));
+    }).catch((err) =>
+      console.error(
+        "Falha notificar atendentes (sentimento negativo):",
+        err.message
+      )
+    );
   }
-  
-  // 8. Atualizar analytics
+
   await updateAnalytics(from, weekend);
 
-  // 9. Integração com dj-decor: detectar intenção de agendamento
+  // Agenda real no CRM quando o cliente fala de festa/data
   try {
-    if (!djDecorClient.isEnabled()) {
-      return { responseText, sentiment };
-    }
+    if (djDecorClient.isEnabled()) {
+      const lowerText = text.toLowerCase();
+      const hasScheduleIntent =
+        /\b(quero agendar|agendar|reservar|marcar|festa|evento|anivers[aá]rio|casamento|disponibilidade|tem data)\b/i.test(
+          lowerText
+        );
+      const dataAgenda = parseAgendaDateFromText(text);
 
-    const lowerText = text.toLowerCase();
-    const hasScheduleIntent =
-      /\b(quero agendar|agendar|reservar|marcar|festa|evento|anivers[aá]rio|casamento)\b/i.test(
-        lowerText
-      );
-    if (hasScheduleIntent) {
-      const agenda = await djDecorClient.getDisponibilidade();
-      const ocupadas = agenda.detalhe
-        ?.map((d) => {
-          const hora = d.montagem
-            ? new Date(d.montagem).toLocaleTimeString("pt-BR", {
-                hour: "2-digit",
-                minute: "2-digit",
-                timeZone: process.env.TIMEZONE || "America/Sao_Paulo",
-              })
-            : "";
-          return hora ? `${d.tema} (${hora})` : d.tema;
-        })
-        .filter(Boolean);
+      if (hasScheduleIntent || dataAgenda) {
+        const agenda = await djDecorClient.getDisponibilidade(
+          dataAgenda || undefined
+        );
+        const labelDia = dataAgenda
+          ? dataAgenda.split("-").reverse().join("/")
+          : "hoje";
+        const ocupadas = agenda.detalhe
+          ?.map((d) => {
+            const hora = d.montagem
+              ? new Date(d.montagem).toLocaleTimeString("pt-BR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  timeZone: process.env.TIMEZONE || "America/Sao_Paulo",
+                })
+              : "";
+            return hora ? `${d.tema} (${hora})` : d.tema;
+          })
+          .filter(Boolean);
 
-      const respostaAgenda = agenda.disponivel
-        ? `📅 Vi no sistema: no dia de hoje temos *${agenda.festasNoDia}* festa(s) marcada(s)${
-            ocupadas?.length ? `: ${ocupadas.join(", ")}` : ""
-          }. Ainda dá para encaixar — me diga a *data* e o *horário* que você prefere que eu verifico certinho!`
-        : `📅 Esse dia já está bem cheio no sistema (*${agenda.festasNoDia}* festas). Me passa outra data que eu confiro a disponibilidade pra você 😊`;
+        const respostaAgenda = agenda.disponivel
+          ? `📅 Olhei no sistema para *${labelDia}*: temos *${agenda.festasNoDia}* festa(s)${
+              ocupadas?.length ? ` — ${ocupadas.join(", ")}` : ""
+            }. Ainda dá para encaixar! Me diga o *horário* e o *tema* que eu te ajudo com o orçamento 😊`
+          : `📅 Em *${labelDia}* o sistema já está bem cheio (*${agenda.festasNoDia}* festas). Me passa outra data que eu confiro pra você!`;
 
-      await sendMessage(from, respostaAgenda);
+        await sendAndMirrorToCrm({
+          to: from,
+          text: respostaAgenda,
+          conversaId,
+        });
+      }
     }
   } catch (e: any) {
     console.error("Falha ao consultar disponibilidade no dj-decor:", e.message);

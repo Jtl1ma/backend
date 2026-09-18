@@ -44,7 +44,7 @@ router.post('/', async (req: Request, res: Response) => {
             text: text,
             timestamp: timestamp,
             contactName: contactName,
-            
+            messageId: message.id || undefined,
           });
         }
 

@@ -107,10 +107,14 @@ export class DjDecorClient {
       .trim();
   }
 
-  tokenFingerprint(): { len: number; tail: string } | null {
+  tokenFingerprint(): { len: number; head: string; tail: string } | null {
     const token = this.readToken();
     if (!token) return null;
-    return { len: token.length, tail: token.slice(-4) };
+    return {
+      len: token.length,
+      head: token.slice(0, 4),
+      tail: token.slice(-4),
+    };
   }
 
   isEnabled() {

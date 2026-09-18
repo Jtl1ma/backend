@@ -43,8 +43,31 @@ export interface CriarOrcamentoInput {
   pegueEMonte?: boolean;
   itensExtras?: string[];
   observacoes?: string | null;
+  notasInternas?: string | null;
+  foraParacambi?: boolean;
+  origem?: string | null;
   vendedorId?: string;
   conversaId?: string;
+  montadorEquipeId?: string | null;
+  desmontadorEquipeId?: string | null;
+}
+
+export interface CatalogoKit {
+  id: string;
+  nome: string;
+  categoria: string;
+  descricaoCurta: string | null;
+  valorEquipe: number;
+  valorPegueEMonte: number | null;
+  tamanhoSugerido: "P" | "M" | "G" | "GG";
+  itens: string[];
+}
+
+export interface CatalogoAddon {
+  id: string;
+  nome: string;
+  valor: number;
+  tipo: string;
 }
 
 /**
@@ -178,6 +201,15 @@ export class DjDecorClient {
     }
   }
 
+  async getConversa(conversaId: string) {
+    this.assertEnabled();
+    const response = await this.client.get(
+      `/api/integracoes/ia/conversas/${conversaId}`,
+      { headers: this.authHeaders() }
+    );
+    return response.data;
+  }
+
   async checarAgenda(
     data: string,
     horarioMontagem?: string
@@ -205,9 +237,11 @@ export class DjDecorClient {
     return this.checarAgenda(dia);
   }
 
-  async listCatalogo() {
+  async listCatalogo(): Promise<{ kits: CatalogoKit[]; addons: CatalogoAddon[] }> {
     this.assertEnabled();
-    const response = await this.client.get("/api/integracoes/ia/catalogo");
+    const response = await this.client.get("/api/integracoes/ia/catalogo", {
+      headers: this.authHeaders(),
+    });
     return response.data;
   }
 
@@ -215,7 +249,8 @@ export class DjDecorClient {
     this.assertEnabled();
     const response = await this.client.post(
       "/api/integracoes/ia/orcamentos",
-      input
+      input,
+      { headers: this.authHeaders() }
     );
     return response.data;
   }
@@ -224,6 +259,7 @@ export class DjDecorClient {
     this.assertEnabled();
     const response = await this.client.get("/api/integracoes/ia/festas", {
       params: { telefone },
+      headers: this.authHeaders(),
     });
     return response.data;
   }

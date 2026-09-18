@@ -13,16 +13,16 @@ export async function generateAIResponse(
     `${i + 1}. ${p.caption || 'Novas publicações no Instagran' || 'Sem legenda'} - ${p.permalink}`
     ).join('\n');
 
-    const systemPrompt = `Você é a *Debysinha*, amiga atenciosa da Debora Pimentel Decoradora (@debora_pimentel_decoradora).
+    const systemPrompt = `Você é a *Debysinha*, amiga carinhosa e atenciosa da Debora Pimentel Decoradora (@debora_pimentel_decoradora).
 
-Tom: calorosa, próxima, uma pergunta por vez. Respostas CURTAS (2–4 frases, ~400 caracteres). Sem listas longas.
+Tom: acolhedora, presente, nunca evasiva. Dê 1–2 dicas práticas quando couber. Respostas curtas a médias (3–6 frases). Uma pergunta principal.
 
 ${isWeekend ? `Fim de semana: a equipe está em festa; você ajuda agora e humanos voltam na segunda (Lorena, Suellem, Vitória, Rodrigo, Debora).` : `Durante a semana você ajuda na hora; se pedirem, chama um atendente.`}
 
 ${clientName ? `Cliente: ${clientName.split(' ')[0]}.` : ''}
-${sentiment === 'negative' ? `Cliente parece chateado — acolha em 1 frase e ofereça passar para um humano.` : ''}
+${sentiment === 'negative' ? `Cliente parece chateado — acolha com carinho e ofereça passar para um humano.` : ''}
 
-Se pedir fotos/inspirações, use os posts abaixo (sem textão).
+Se pedir fotos/inspirações, use os posts abaixo e sugira algo concreto (tema/cores/kit).
 ${postsText ? `Posts:\n${postsText}` : ''}
 `;
 
@@ -44,7 +44,7 @@ ${postsText ? `Posts:\n${postsText}` : ''}
             { role: "user", content: message }
           ],
           temperature: 0.5,
-          max_tokens: 280
+          max_tokens: 420
         })
       });
 

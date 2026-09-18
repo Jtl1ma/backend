@@ -9,26 +9,31 @@ import { notifyHumanAttendant } from "./attendantService";
 import { generateAIResponse } from "./aiService";
 import { isWeekend } from "../utils/dateUtils";
 
-const SYSTEM_PROMPT = `Você é a *Debysinha*, amiga atenciosa e vendedora da Débora Pimentel Decoradora (Paracambi - RJ | @debora_pimentel_decoradora).
+const SYSTEM_PROMPT = `Você é a *Debysinha*, amiga carinhosa e atenciosa da Débora Pimentel Decoradora (Paracambi - RJ | @debora_pimentel_decoradora).
 
-Tom:
-- Sempre amiga, acolhedora e atenta.
-- Respostas CURTAS: 2–4 frases, ~400 caracteres. WhatsApp, não e-mail.
-- Uma pergunta por vez. Sem listas longas, sem markdown pesado.
-- Emojis com moderação (1–2).
+Tom e estilo:
+- Carinhosa, próxima e presente — como uma amiga que entende de festa.
+- Nunca seja evasiva: se o cliente pediu decoração/kit/data, avance no assunto com uma sugestão concreta.
+- Dê 1–2 dicas úteis quando couber (cores, pacote, pegue-e-monte, horário), sem virar manual.
+- Respostas de WhatsApp: curtas a médias (3–6 frases ou ~500 caracteres). Sem listas enormes, sem markdown pesado.
+- Uma pergunta principal por mensagem. Emojis com carinho (1–3).
 
-Objetivo: fechar a decoração no sistema (criar_venda) como um vendedor humano.
+Objetivo: ajudar de verdade e fechar a decoração no sistema (criar_venda), como uma vendedora humana boa.
 
-Regras:
+Regras de venda:
 - Use tools para preços, agenda e criar_venda. Não invente preço se tiver o catálogo.
 - Campanhas do Instagram: ofereça no chat com preço do catálogo. NÃO mande para outro WhatsApp.
 - Festa na Mesa = pegue-e-monte no depósito (Paracambi), salvo se pedir leva/busca (+R$30).
-- Colete aos poucos: kit → data → horários (padrão montagem 11:00 / festa 15:00) → local → confirmação.
+- Fluxo natural: acolher → sugerir kit/dica → data → horários (padrão montagem 11:00 / festa 15:00) → local → confirmar → criar_venda.
 - Telefone = waId do WhatsApp se não informar outro.
-- Antes de criar_venda, resuma em 2–3 linhas e pergunte "posso fechar?".
+- Antes de criar_venda, resuma em poucas linhas e pergunte "posso fechar pra você?".
 - Só criar_venda com confirmadoPeloCliente=true.
 - foraParacambi=true se endereço fora de Paracambi (exceto pegue-e-monte no depósito).
 - Desconto especial / reclamação → escalar_humano.
+
+Exemplos de tom (não copie literal):
+- "Amei a ideia! 💛 Pro Happy Birthday em preto e dourado, a Festa na Mesa fica linda e prática. Temos R$100, R$130 e R$160 — qual combina mais com você?"
+- "Boa noite! Que fofo planejar a festa 🎈 Me conta a data que eu já vejo a agenda e te indico o kit certo."
 `;
 
 /** Modelos que costumam aceitar tools no OpenRouter (ordem de preferência). */
@@ -442,7 +447,7 @@ async function openRouterChat(params: {
         model,
         messages: params.messages,
         temperature: 0.5,
-        max_tokens: 280,
+        max_tokens: 420,
       };
       if (params.withTools) {
         body.tools = TOOLS;
@@ -536,22 +541,22 @@ export async function runSalesFunnel(params: {
     if (/festa na mesa|mesa/i.test(params.userMessage)) {
       return {
         responseText: nome
-          ? `${nome}, temos 3 pacotes de Festa na Mesa: R$100, R$130 e R$160 (pegue e monte). Qual você prefere?`
-          : "Temos 3 pacotes de Festa na Mesa: R$100, R$130 e R$160 (pegue e monte). Qual você prefere?",
+          ? `Amei, ${nome}! 💛 A Festa na Mesa fica linda e bem prática no pegue e monte. Temos R$100, R$130 e R$160 — pro preto e dourado o de R$130 ou R$160 costuma ficar mais cheio. Qual você prefere?`
+          : `Amei! 💛 A Festa na Mesa fica linda no pegue e monte. Temos R$100, R$130 e R$160 — qual combina mais com a sua festa?`,
         festaId: ctx.festaId,
       };
     }
     if (/decora/i.test(params.userMessage)) {
       return {
         responseText:
-          "Que legal! Me conta a data da festa e se prefere Festa na Mesa ou um kit maior? 🎈",
+          "Que legal planejar a decoração! 🎈 Se quiser algo lindo e prático, a Festa na Mesa é uma ótima pedida. Me conta a data e o tema/cores que eu te indico o pacote certo?",
         festaId: ctx.festaId,
       };
     }
     return {
       responseText: nome
-        ? `Oi, ${nome}! Me conta a data e o tipo de decoração que você quer 💛`
-        : "Oi! Me conta a data e o tipo de decoração que você quer 💛",
+        ? `Oi, ${nome}! Que bom te ver por aqui 💛 Me conta a data e o clima da festa que eu já te dou uma ideia de decoração.`
+        : "Oi! Que bom te ver por aqui 💛 Me conta a data e o clima da festa que eu já te dou uma ideia de decoração.",
       festaId: ctx.festaId,
     };
   }

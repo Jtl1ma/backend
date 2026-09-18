@@ -11,30 +11,69 @@ import { isWeekend } from "../utils/dateUtils";
 
 const SYSTEM_PROMPT = `Você é a *Debysinha*, amiga carinhosa e atenciosa da Débora Pimentel Decoradora (Paracambi - RJ | @debora_pimentel_decoradora).
 
-Tom e estilo:
-- Carinhosa, próxima e presente — como uma amiga que entende de festa.
-- Nunca seja evasiva: se o cliente pediu decoração/kit/data, avance no assunto com uma sugestão concreta.
-- Dê 1–2 dicas úteis quando couber (cores, pacote, pegue-e-monte, horário), sem virar manual.
-- Respostas de WhatsApp: curtas a médias (3–6 frases ou ~500 caracteres). Sem listas enormes, sem markdown pesado.
-- Uma pergunta principal por mensagem. Emojis com carinho (1–3).
+Você conversa como gente de verdade no WhatsApp — nunca como script de call center.
 
-Objetivo: ajudar de verdade e fechar a decoração no sistema (criar_venda), como uma vendedora humana boa.
+Tom:
+- Carinhosa, leve e presente.
+- Entenda a intenção da mensagem (cumprimento, “posso falar?”, dúvida, pedido de orçamento).
+- Se for só cumprimento / “posso falar um minutinho?”, responda humano: acolha, diga que pode falar, e espere. NÃO peça data, kit, tema nem preço nessa hora.
+- Só fale de festa/kit quando a pessoa demonstrar interesse (decoração, mesa, data, orçamento, campanha).
+- Quando for vender: atenciosa, com 1–2 dicas, sem enrolação e sem textão.
+- Respostas curtas a médias (2–5 frases). Uma pergunta só quando fizer sentido. Emojis leves (1–2).
 
-Regras de venda:
-- Use tools para preços, agenda e criar_venda. Não invente preço se tiver o catálogo.
+Objetivo geral: criar conexão e, quando couber, fechar a decoração no sistema (criar_venda).
+
+Regras de venda (só depois que o assunto for festa/decoração):
+- Use tools para preços, agenda e criar_venda. Não invente preço.
 - Campanhas do Instagram: ofereça no chat com preço do catálogo. NÃO mande para outro WhatsApp.
-- Festa na Mesa = pegue-e-monte no depósito (Paracambi), salvo se pedir leva/busca (+R$30).
-- Fluxo natural: acolher → sugerir kit/dica → data → horários (padrão montagem 11:00 / festa 15:00) → local → confirmar → criar_venda.
-- Telefone = waId do WhatsApp se não informar outro.
-- Antes de criar_venda, resuma em poucas linhas e pergunte "posso fechar pra você?".
-- Só criar_venda com confirmadoPeloCliente=true.
-- foraParacambi=true se endereço fora de Paracambi (exceto pegue-e-monte no depósito).
+- Festa na Mesa = pegue-e-monte no depósito (Paracambi), salvo leva/busca (+R$30).
+- Fluxo: acolher → entender desejo → sugerir → data/horários → local → confirmar → criar_venda.
+- Telefone = waId se não informar outro.
+- Antes de criar_venda, resuma e pergunte se pode fechar. Só com confirmadoPeloCliente=true.
 - Desconto especial / reclamação → escalar_humano.
 
-Exemplos de tom (não copie literal):
-- "Amei a ideia! 💛 Pro Happy Birthday em preto e dourado, a Festa na Mesa fica linda e prática. Temos R$100, R$130 e R$160 — qual combina mais com você?"
-- "Boa noite! Que fofo planejar a festa 🎈 Me conta a data que eu já vejo a agenda e te indico o kit certo."
+Exemplos (adapte, não copie seco):
+- Cliente: "Oi boa noite, posso falar um minuto?" → "Claro que pode! 💛 Boa noite, tô aqui sim. Pode mandar."
+- Cliente: "Quero festa na mesa" → "Amei! 💛 A Festa na Mesa fica linda e bem prática. Temos R$100, R$130 e R$160 — me conta a data que eu te ajudo a escolher?"
 `;
+
+/** Cumprimento / pedido de atenção sem pedido de venda ainda. */
+function isSoftOpener(text: string): boolean {
+  const t = text.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").trim();
+  if (!t || t.length > 80) return false;
+
+  const hasSaleIntent =
+    /(festa|decor|mesa|orcamento|orçamento|agendar|data|kit|preco|preço|pacote|valor|contrato|bolas|casamento|anivers)/i.test(
+      t
+    );
+  if (hasSaleIntent) return false;
+
+  return (
+    /^(oi|ola|olá|oie|eai|e ai|bom dia|boa tarde|boa noite)\b/.test(t) ||
+    /\b(posso falar|pode falar|tem um minutinho|um minuto|tudo bem|td bem|como vai)\b/.test(
+      t
+    ) ||
+    /^(oi|ola|olá).{0,40}(boa noite|bom dia|boa tarde)/.test(t)
+  );
+}
+
+function softOpenerReply(contactName?: string | null): string {
+  const nome = contactName?.split(/\s+/)[0];
+  const variants = nome
+    ? [
+        `Claro, ${nome}! 💛 Pode falar à vontade, tô aqui.`,
+        `Oi, ${nome}! Boa noite 😊 Pode sim, manda o que você precisar.`,
+        `Pode falar, ${nome}! 💛 Fico feliz que chamou. Estou por aqui.`,
+      ]
+    : [
+        "Claro! 💛 Pode falar à vontade, tô aqui.",
+        "Oi! Pode sim 😊 Manda o que você precisar.",
+        "Pode falar! 💛 Estou por aqui.",
+      ];
+  // Varia um pouco pra não parecer robô
+  const idx = Math.floor(Date.now() / 1000) % variants.length;
+  return variants[idx];
+}
 
 /** Modelos que costumam aceitar tools no OpenRouter (ordem de preferência). */
 const TOOL_MODELS = [
@@ -519,6 +558,14 @@ export async function runSalesFunnel(params: {
     festaId: params.festaId,
   };
 
+  // Abertura social: responde humano e NÃO empurra venda/kit/data
+  if (isSoftOpener(params.userMessage)) {
+    return {
+      responseText: softOpenerReply(params.contactName),
+      festaId: ctx.festaId,
+    };
+  }
+
   try {
     return await runSalesFunnelInner(params, ctx);
   } catch (err: any) {
@@ -537,7 +584,6 @@ export async function runSalesFunnel(params: {
       console.error("[funil] generateAI também falhou:", e2?.message || e2);
     }
     const nome = params.contactName?.split(" ")[0];
-    // Fallback contextual curto — NÃO repetir "boa noite / em que posso ajudar na festa"
     if (/festa na mesa|mesa/i.test(params.userMessage)) {
       return {
         responseText: nome
@@ -555,8 +601,8 @@ export async function runSalesFunnel(params: {
     }
     return {
       responseText: nome
-        ? `Oi, ${nome}! Que bom te ver por aqui 💛 Me conta a data e o clima da festa que eu já te dou uma ideia de decoração.`
-        : "Oi! Que bom te ver por aqui 💛 Me conta a data e o clima da festa que eu já te dou uma ideia de decoração.",
+        ? `Oi, ${nome}! Que bom te ver por aqui 💛 Pode me contar com calma o que você precisa?`
+        : "Oi! Que bom te ver por aqui 💛 Pode me contar com calma o que você precisa?",
       festaId: ctx.festaId,
     };
   }
@@ -604,14 +650,14 @@ async function runSalesFunnelInner(
         }
         return { role: "assistant" as const, content: texto };
       });
-      // Remove respostas-fallback repetidas do histórico para não contaminar o modelo
-      history = history.filter(
-        (m) =>
-          !(
-            m.role === "assistant" &&
-            /em que posso te ajudar na festa\?/i.test(m.content || "")
-          )
-      );
+      // Remove respostas-robô do histórico pra não contaminar o tom
+      history = history.filter((m) => {
+        if (m.role !== "assistant") return true;
+        const c = m.content || "";
+        if (/em que posso te ajudar na festa\?/i.test(c)) return false;
+        if (/me conta a data e o clima da festa/i.test(c)) return false;
+        return true;
+      });
       if (!ctx.vendedorId && data?.conversa?.vendedorId) {
         ctx.vendedorId = data.conversa.vendedorId;
       }

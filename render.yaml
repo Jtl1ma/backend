@@ -6,6 +6,10 @@ services:
     startCommand: npm start
     envVars:
       - key: NODE_VERSION
-        value: 18.x
+        value: 20.x
       - key: PORT
+        sync: false
+      - key: DJDECOR_API_URL
+        sync: false
+      - key: DJDECOR_API_TOKEN
         sync: false

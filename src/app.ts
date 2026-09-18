@@ -16,6 +16,7 @@ import { Server } from 'socket.io';
 import http from 'http';
 import atendente from './routes/atendente';
 import { sendMessage } from './services/whatsappService';
+import { djDecorClient } from './integrations/djDecorClient';
 const helmet = require('helmet');
 dotenv.config();
 
@@ -91,7 +92,11 @@ async function startServer() {
       res.json({
         status: 'online',
         timestamp: new Date().toISOString(),
-        version: '1.0.0'
+        version: '1.0.1',
+        crm: {
+          enabled: djDecorClient.isEnabled(),
+          baseUrl: config.djdecor?.baseUrl || process.env.DJDECOR_API_URL || null,
+        },
       });
     });
 
@@ -107,6 +112,13 @@ async function startServer() {
       console.log('📱 Webhook disponível em: /webhook');
       console.log('📊 Dashboard em: /api/analytics/dashboard');
       console.log('🔐 Login em: /auth/login');
+      if (djDecorClient.isEnabled()) {
+        console.log('🔗 CRM dj-decor: integração ATIVA');
+      } else {
+        console.warn(
+          '⚠️ CRM dj-decor: integração DESLIGADA — defina DJDECOR_API_URL e DJDECOR_API_TOKEN'
+        );
+      }
 
       // Configure ngrok to expose the local server
       /*ngrok.forward({

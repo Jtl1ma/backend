@@ -110,6 +110,16 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
       : new Date(),
   });
 
+  if (!crm) {
+    console.warn(
+      "[dj-decor] Mensagem NÃO espelhada no CRM. Confira DJDECOR_API_URL e DJDECOR_API_TOKEN no Render."
+    );
+  } else {
+    console.log(
+      `[dj-decor] sync OK conversa=${crm.conversaId} modo=${crm.modo} shouldRunAgent=${crm.shouldRunAgent}`
+    );
+  }
+
   const conversaId = crm?.conversaId ?? null;
 
   // Humano assumiu no CRM ou cliente recorrente → não deixa a Debysinha responder

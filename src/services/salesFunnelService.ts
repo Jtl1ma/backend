@@ -25,6 +25,7 @@ Como ajudar (obrigatório):
 - Festa na Mesa: R$100 / R$130 / R$160 (pegue e monte; leva/busca +R$30).
 - Quer mudar kit ou festa maior: confirme a troca e sugira 2 opções — não ignore e não force fechar a venda antiga.
 - Se perguntar o que vem no kit / itens / entrada de bolas: explique com a lista oficial do catálogo (itens do kit + opções de bolas). NÃO diga "posso registrar" até ela confirmar.
+- Se pedir pra VER como fica / foto / referência / tema: diga que vai mandar fotos e use a tool mostrar_referencias (ou o fluxo automático). Nunca invente link de imagem.
 - NUNCA escreva raciocínio interno ("preciso", "devo", "o contexto diz"). Só a mensagem final pra cliente.
 - Dados completos: resuma e peça OK pra registrar (criar_venda). Observações/notas com todos os detalhes.
 - 2–5 frases (lista de itens do kit pode ser em linhas). Emojis 0–2. Tom humano.
@@ -76,6 +77,7 @@ function isExploringOptions(text: string): boolean {
     isVaguePriceAsk(text) ||
     isUndecided(text) ||
     isAskingKitDetails(text) ||
+    wantsVisuals(text) ||
     /\b(tem\s+(uma\s+)?festa|tem\s+alguma|o\s+que\s+voc[eê]\s+tem|me\s+mostra|op[cç][oõ]es|outra\s+op[cç][aã]o|mais\s+simples|compact[oa]|intimista|n[aã]o\s+muito\s+grande|um\s+pouco\s+menor|entrada\s+de\s+bolas)\b/i.test(
       text
     )
@@ -92,6 +94,23 @@ function wantsEntradaBolas(text: string): boolean {
   return /\b(entrada\s+de\s+bolas|t[uú]nel\s+(de\s+)?(entrada|bolas)|arco\s+de\s+entrada|bolas\s+na\s+entrada)\b/i.test(
     text
   );
+}
+
+/** Cliente quer ver fotos / como fica a decoração. */
+function wantsVisuals(text: string): boolean {
+  return /\b(como\s+(fica|é|vai\s+ficar|ficaria)|mostra(r)?(\s+pra\s+mim)?\s+(foto|fotos|imagem|imagens|exemplo|refer[eê]ncia)|ver\s+(foto|fotos|imagem|exemplo|como)|tem\s+(foto|fotos|imagem)|refer[eê]ncia(s)?|inspir[aç][aã]o|portf[oó]lio|manda\s+(uma\s+)?foto|envie\s+(uma\s+)?foto|quero\s+ver\s+(como|a\s+decor|o\s+tema))\b/i.test(
+    text
+  );
+}
+
+function extractTemaHint(text: string, slotsTema?: string | null): string | null {
+  if (slotsTema && slotsTema.length >= 3) return slotsTema;
+  const m = text.match(
+    /tema\s+(?:[ée]\s+|de\s+|do\s+)?([^\n.?!]{3,60})|happy\s*birthday|minnie|safari|boteco|frozen|bluey|fazendinha|discoteca|jardim|moranguinho|neon|led/i
+  );
+  if (!m) return null;
+  if (m[1]) return m[1].trim();
+  return m[0].trim();
 }
 
 /** Pergunta de valor/preço sem citar tipo de festa. */
@@ -281,6 +300,102 @@ function kitDetailsAssistReply(params: {
 
   reply += "\nQuer que eu feche o orçamento com isso?";
   return reply;
+}
+
+export type FunnelImage = { url: string; caption?: string };
+export type FunnelResult = {
+  responseText: string;
+  festaId?: string | null;
+  images?: FunnelImage[];
+};
+
+/** Junta fotos do CRM (por tema) + Instagram (media_url). */
+async function collectVisualReferences(params: {
+  temaHint: string | null;
+  posts?: Array<{
+    caption?: string;
+    media_url?: string;
+    thumbnail_url?: string;
+    permalink?: string;
+    media_type?: string;
+  }>;
+  contactName?: string | null;
+}): Promise<{ text: string; images: FunnelImage[] }> {
+  const nome = params.contactName?.split(/\s+/)[0];
+  const prefix = nome ? `${nome}, ` : "";
+  const images: FunnelImage[] = [];
+  let fromCrm = 0;
+  let fromIg = 0;
+
+  if (djDecorClient.isEnabled()) {
+    try {
+      const refs = await djDecorClient.buscarReferencias({
+        tema: params.temaHint || undefined,
+        limite: 3,
+      });
+      for (const img of refs.imagens || []) {
+        if (!img.url) continue;
+        images.push({
+          url: img.url,
+          caption: img.caption || (img.tema ? `Referência · ${img.tema}` : undefined),
+        });
+        fromCrm++;
+      }
+    } catch (err: any) {
+      console.warn("[funil] refs CRM:", err?.message || err);
+    }
+  }
+
+  const temaLc = (params.temaHint || "").toLowerCase();
+  const igPosts = params.posts || [];
+  for (const p of igPosts) {
+    if (images.length >= 4) break;
+    const url = p.media_url || p.thumbnail_url;
+    if (!url) continue;
+    if (p.media_type && /VIDEO/i.test(p.media_type) && !p.thumbnail_url) {
+      continue;
+    }
+    const cap = String(p.caption || "");
+    if (temaLc && !cap.toLowerCase().includes(temaLc.split(/\s+/)[0] || temaLc)) {
+      // sem match forte — ainda assim aceita se ainda temos poucas fotos
+      if (fromCrm >= 2 && fromIg >= 1) continue;
+    }
+    images.push({
+      url,
+      caption: cap
+        ? `Instagram · ${cap.replace(/\s+/g, " ").trim().slice(0, 80)}`
+        : "Instagram · Débora Pimentel",
+    });
+    fromIg++;
+  }
+
+  if (!images.length) {
+    return {
+      text:
+        prefix +
+        (params.temaHint
+          ? `ainda não achei foto pronta do tema *${params.temaHint}* aqui. Me manda uma referência que você gosta (ou o nome do tema com mais detalhe) que eu te ajudo a visualizar 💛`
+          : "me fala o *tema* (ex.: Happy Birthday, Minnie, Safari…) que eu te mando fotos de referência do nosso acervo e do Instagram 💛"),
+      images: [],
+    };
+  }
+
+  const temaLabel = params.temaHint ? ` do tema *${params.temaHint}*` : "";
+  const fontes = [
+    fromCrm ? "nosso acervo" : null,
+    fromIg ? "Instagram" : null,
+  ]
+    .filter(Boolean)
+    .join(" e ");
+
+  return {
+    text:
+      prefix +
+      `olha só como pode ficar${temaLabel} — tô te mandando ${images.length} foto${images.length > 1 ? "s" : ""}` +
+      (fontes ? ` (${fontes})` : "") +
+      `. Se quiser outro estilo, me fala que eu busco mais 💛`,
+    images: images.slice(0, 4),
+  };
 }
 
 /**
@@ -1370,8 +1485,14 @@ export async function runSalesFunnel(params: {
   vendedorId?: string | null;
   cliente?: { id: string; nome: string; telefone: string } | null;
   festaId?: string | null;
-  posts?: Array<{ caption?: string; permalink?: string }>;
-}): Promise<{ responseText: string; festaId?: string | null }> {
+  posts?: Array<{
+    caption?: string;
+    permalink?: string;
+    media_url?: string;
+    thumbnail_url?: string;
+    media_type?: string;
+  }>;
+}): Promise<FunnelResult> {
   const ctx: FunnelContext = {
     waId: params.waId,
     contactName: params.contactName,
@@ -1435,11 +1556,17 @@ async function runSalesFunnelInner(
     vendedorId?: string | null;
     cliente?: { id: string; nome: string; telefone: string } | null;
     festaId?: string | null;
-    posts?: Array<{ caption?: string; permalink?: string }>;
+    posts?: Array<{
+      caption?: string;
+      permalink?: string;
+      media_url?: string;
+      thumbnail_url?: string;
+      media_type?: string;
+    }>;
   },
   ctx: FunnelContext,
   opts?: { forceNoTools?: boolean; socialOnly?: boolean }
-): Promise<{ responseText: string; festaId?: string | null }> {
+): Promise<FunnelResult> {
   const postsText = summarizeCampaigns(params.posts);
 
   let catalogText = "";
@@ -1492,6 +1619,21 @@ async function runSalesFunnelInner(
   transcript = `${transcript}\nIN: ${params.userMessage}`;
   const slots = extractSaleSlots(transcript);
   console.log("[funil] slots:", formatSlotsBlock(slots));
+
+  // Quer ver fotos / como fica o tema
+  if (wantsVisuals(params.userMessage)) {
+    const temaHint = extractTemaHint(params.userMessage, slots.tema);
+    const visuals = await collectVisualReferences({
+      temaHint,
+      posts: params.posts,
+      contactName: params.contactName,
+    });
+    return {
+      responseText: visuals.text,
+      festaId: ctx.festaId,
+      images: visuals.images,
+    };
+  }
 
   // Pergunta o que vem no kit / entrada de bolas → lista oficial, sem fechar venda
   if (
@@ -1608,6 +1750,9 @@ async function runSalesFunnelInner(
       : null,
     isExploringOptions(params.userMessage)
       ? "Cliente explorando tamanho/opções (menor, não muito grande, etc.): sugira 2–3 kits alinhados. PROIBIDO dizer 'posso registrar' com kit antigo."
+      : null,
+    wantsVisuals(params.userMessage)
+      ? "Cliente quer VER fotos: o sistema já envia imagens do acervo/Instagram. Só confirme em texto, sem inventar links."
       : null,
     "PROIBIDO recomeçar a conversa ou fingir que é o primeiro contato.",
   ]

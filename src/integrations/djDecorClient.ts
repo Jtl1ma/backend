@@ -277,6 +277,33 @@ export class DjDecorClient {
     return response.data;
   }
 
+  async buscarReferencias(params: {
+    tema?: string;
+    limite?: number;
+  }): Promise<{
+    ok: boolean;
+    tema: string | null;
+    fallback: boolean;
+    total: number;
+    imagens: Array<{
+      id: string;
+      url: string;
+      tema: string | null;
+      caption: string;
+      tipo: string;
+    }>;
+  }> {
+    this.assertEnabled();
+    const response = await this.client.get("/api/integracoes/ia/referencias", {
+      params: {
+        ...(params.tema ? { tema: params.tema } : {}),
+        limite: params.limite ?? 3,
+      },
+      headers: this.authHeaders(),
+    });
+    return response.data;
+  }
+
   async findByCliente(cliente: string) {
     return this.findByTelefone(cliente);
   }

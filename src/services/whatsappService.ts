@@ -215,6 +215,7 @@ async function processIncomingMessageInner(message: WhatsAppMessage) {
 
   let responseText: string;
   let festaId: string | null | undefined = crm?.festaId ?? null;
+  let images: Array<{ url: string; caption?: string }> = [];
   try {
     const funnel = await runSalesFunnel({
       userMessage: text,
@@ -228,12 +229,33 @@ async function processIncomingMessageInner(message: WhatsAppMessage) {
     });
     responseText = funnel.responseText;
     festaId = funnel.festaId;
+    images = funnel.images || [];
   } catch (err: any) {
     console.error("[whatsapp] funil falhou:", err?.message || err);
     const nome = message.contactName?.split(" ")[0];
     responseText = nome
       ? `Oi, ${nome}! Recebi sua mensagem 💛 Em que posso te ajudar?`
       : "Oi! Recebi sua mensagem 💛 Em que posso te ajudar?";
+  }
+
+  // Fotos primeiro (referência visual), texto depois
+  for (const img of images.slice(0, 4)) {
+    try {
+      await sendImage(from, img.url, img.caption);
+      await djDecorClient.syncOutbound({
+        waId: from,
+        texto: img.caption
+          ? `[imagem] ${img.caption}`
+          : "[imagem de referência]",
+        conversaId: conversaId || undefined,
+        autorTipo: "AI",
+      });
+    } catch (err: any) {
+      console.error(
+        "[whatsapp] falha ao enviar imagem:",
+        err?.response?.data || err?.message || err
+      );
+    }
   }
 
   await sendAndMirrorToCrm({
@@ -284,32 +306,61 @@ export async function sendMessage(to: string, text: string) {
     console.error(
       "[WhatsApp] config.whatsApp.url e WHATSAPP_API_URL estão indefinidos"
     );
-    throw new Error("WhatsApp URL não configurada");
+    throw new Error("WhatsApp API URL não configurada");
   }
-  console.log("[DEBUG] sendMessage - to:", to, "url:", url);
-  const data = {
-    messaging_product: "whatsapp",
-    to: to,
-    type: "text",
-    text: { body: text },
-  };
 
-  try {
-    await axios.post(`${url}`, data, {
+  console.log("[DEBUG] sendMessage - to:", to, "url:", url);
+
+  const response = await axios.post(
+    url,
+    {
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { body: text },
+    },
+    {
       headers: {
         Authorization: `Bearer ${config.whatsApp.accessToken}`,
         "Content-Type": "application/json",
       },
-    });
-  } catch (error: any) {
-    const msg = error?.response?.data || error?.message || error;
-    console.error(
-      "[DEBUG] Erro WhatsApp API - status:",
-      error?.response?.status
-    );
-    console.error("[DEBUG] Erro WhatsApp API - data:", JSON.stringify(msg));
-    throw error;
+    }
+  );
+  return response.data;
+}
+
+/** Envia imagem por link público (Meta baixa a URL). */
+export async function sendImage(
+  to: string,
+  imageUrl: string,
+  caption?: string
+) {
+  const url = config.whatsApp.url || process.env.WHATSAPP_API_URL;
+  if (!url) {
+    throw new Error("WhatsApp API URL não configurada");
   }
+
+  console.log("[DEBUG] sendImage - to:", to, "image:", imageUrl.slice(0, 80));
+
+  const response = await axios.post(
+    url,
+    {
+      messaging_product: "whatsapp",
+      to,
+      type: "image",
+      image: {
+        link: imageUrl,
+        ...(caption ? { caption: caption.slice(0, 900) } : {}),
+      },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${config.whatsApp.accessToken}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+  return response.data;
 }
 
 export async function sendInteractiveMessage(
@@ -340,15 +391,23 @@ export async function sendInteractiveMessage(
   });
 }
 
-export async function fetchInstagramPosts() {
+export async function fetchInstagramPosts(): Promise<
+  Array<{
+    id?: string;
+    caption?: string;
+    media_url?: string;
+    permalink?: string;
+    media_type?: string;
+  }>
+> {
   const maxRetries = 2;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const url = `https://graph.facebook.com/v26.0/${config.instagram.businessId}/media`;
       const params = {
-        fields: "id,caption,media_url,permalink,media_type",
+        fields: "id,caption,media_url,permalink,media_type,thumbnail_url",
         access_token: config.instagram.accessToken,
-        limit: 5,
+        limit: 12,
       };
 
       const response = await axios.get(url, { params });

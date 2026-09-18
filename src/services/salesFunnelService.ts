@@ -60,8 +60,21 @@ function isCatalogAsk(text: string): boolean {
 }
 
 function wantsKitChange(text: string): boolean {
-  return /\b(mudar|trocar|outra\s+festa|festa\s+maior|festa\s+grande|maior|6\s*m|6\s*metros|4\s*m|4\s*metros|decora[cç][aã]o\s+\d|kit\s+(pocket|m[eé]dia|intermedi|grande))\b/i.test(
+  return /\b(mudar|trocar|outra\s+festa|festa\s+maior|festa\s+grande|maior|menor|mais\s+pequena|um\s+pouco\s+menor|n[aã]o\s+muito\s+grande|n[aã]o\s+t[aã]o\s+grande|6\s*m|6\s*metros|4\s*m|4\s*metros|decora[cç][aã]o\s+\d|kit\s+(pocket|m[eé]dia|intermedi|grande))\b/i.test(
     text
+  );
+}
+
+/** Cliente explorando tamanho/opções — não é confirmação de fechamento. */
+function isExploringOptions(text: string): boolean {
+  return (
+    isCatalogAsk(text) ||
+    wantsKitChange(text) ||
+    isVaguePriceAsk(text) ||
+    isUndecided(text) ||
+    /\b(tem\s+(uma\s+)?festa|tem\s+alguma|o\s+que\s+voc[eê]\s+tem|me\s+mostra|op[cç][oõ]es|outra\s+op[cç][aã]o|mais\s+simples|compact[oa]|intimista|n[aã]o\s+muito\s+grande|um\s+pouco\s+menor)\b/i.test(
+      text
+    )
   );
 }
 
@@ -83,7 +96,24 @@ function isUndecided(text: string): boolean {
   );
 }
 
+function lastClientMessages(transcript: string, n = 2): string {
+  const lines = transcript
+    .split("\n")
+    .filter((l) => /^IN:/i.test(l))
+    .map((l) => l.replace(/^IN:\s*/i, "").trim())
+    .filter(Boolean);
+  if (!lines.length) return transcript.trim();
+  return lines.slice(-Math.max(1, n)).join("\n");
+}
+
 function inferKitBand(text: string): KitBand {
+  if (
+    /\b(n[aã]o\s+muito\s+grande|n[aã]o\s+t[aã]o\s+grande|um\s+pouco\s+menor|mais\s+menor|menor|mais\s+pequena|compact[oa])\b/i.test(
+      text
+    )
+  ) {
+    return "medio";
+  }
   if (/\b(6\s*m|6\s*metros|4\s*m|4\s*metros|festa\s+grande|sal[aã]o\s+grande|decora[cç][aã]o\s+grande)\b/i.test(text)) {
     return "grande";
   }
@@ -151,27 +181,29 @@ function humanAssistReply(params: {
   const hasVip = /festa na mesa|curios|vip/i.test(joinedPosts);
   const link = posts?.find((p) => p.permalink)?.permalink;
 
-  // Pedido bem específico (ex.: 6M) → 2 opções, sem dump
+  // Pedido com faixa de tamanho → 2–3 opções, sem dump
   if (band === "grande" || band === "mesa" || band === "pequeno" || band === "medio") {
     const kits = pickKitsForBand(cat, band).slice(0, 3);
-    const intro =
-      band === "grande"
-        ? changing
-          ? "fechado, vamos pra algo maior — essas costumam ficar lindas:"
-          : "pra festa grande eu indico essas:"
-        : band === "mesa"
-          ? hasVip
-            ? `pra mesa fica lindo — e ainda rola a campanha VIP` +
-              (link ? ` (${link})` : "") +
-              ` com a palavra *CURIOSA*. Opções:`
-            : "pra Festa na Mesa (pegue e monte) tenho essas:"
-          : "olha o que mais combina com o que você falou:";
+    let intro: string;
+    if (band === "medio") {
+      intro = changing
+        ? "entendi, algo mais contido — essas costumam ficar ótimas:"
+        : "pra festa não muito grande, essas costumam ficar ótimas:";
+    } else if (band === "grande") {
+      intro = changing
+        ? "fechado, vamos pra algo maior — essas costumam ficar lindas:"
+        : "pra festa grande eu indico essas:";
+    } else if (band === "mesa") {
+      intro = hasVip
+        ? `pra mesa fica lindo — e ainda rola a campanha VIP` +
+          (link ? ` (${link})` : "") +
+          ` com a palavra *CURIOSA*. Opções:`
+        : "pra Festa na Mesa (pegue e monte) tenho essas:";
+    } else {
+      intro = "olha o que mais combina com o que você falou:";
+    }
     return (
-      prefix +
-      intro +
-      "\n" +
-      kits.map(formatKitLine).join("\n") +
-      "\nQual te anima mais?"
+      prefix + intro + "\n" + kits.map(formatKitLine).join("\n") + "\nQual te anima mais?"
     );
   }
 
@@ -287,41 +319,51 @@ export function extractSaleSlots(transcript: string): SaleSlots {
   // Preferências do cliente — não misturar com perguntas da IA
   const client = clientOnlyText(transcript);
   const t = client || transcript;
-  const latest = t.slice(-500);
+  // Kit/tamanho: só últimas falas (evita travar em "6M" antigo)
+  const recentKitText = lastClientMessages(transcript, 2);
+  const lastMsg = lastClientMessages(transcript, 1);
 
   let kitCatalogo: string | null = null;
   let valor: number | null = null;
   let pegueEMonte = /pegue\s*e\s*monte|pegue e monte|retirada|dep[oó]sito/i.test(
-    t
+    recentKitText
   );
 
-  // Kits maiores / metros (prioridade sobre festa na mesa se a última intenção for essa)
-  if (/\b(6\s*m|6\s*metros|decora[cç][aã]o\s*6|festa\s+grande\s+de\s*6)\b/i.test(latest)) {
-    kitCatalogo = "decoracao-6m";
-    valor = 980;
-    pegueEMonte = false;
-  } else if (/\b(4\s*m|4\s*metros|decora[cç][aã]o\s*4)\b/i.test(latest)) {
-    kitCatalogo = "decoracao-4m";
-    valor = 730;
-    pegueEMonte = false;
-  } else if (/\bkit\s*festa\s*m[eé]dia|festa\s+m[eé]dia\b/i.test(latest)) {
-    kitCatalogo = "media";
-    valor = 450;
-  } else if (/\bintermedi[aá]ria\b/i.test(latest)) {
-    kitCatalogo = "intermediaria";
-    valor = 350;
-  } else if (/\bpocket\b/i.test(latest)) {
-    kitCatalogo = "pocket";
-    valor = 250;
+  // Se está explorando tamanho ("menor", "não muito grande"), NÃO herda kit antigo
+  const exploring = isExploringOptions(lastMsg);
+
+  if (!exploring || inferKitBand(lastMsg) === "grande") {
+    if (/\b(6\s*m|6\s*metros|decora[cç][aã]o\s*6|festa\s+grande\s+de\s*6)\b/i.test(recentKitText)) {
+      kitCatalogo = "decoracao-6m";
+      valor = 980;
+      pegueEMonte = false;
+    } else if (/\b(4\s*m|4\s*metros|decora[cç][aã]o\s*4)\b/i.test(recentKitText)) {
+      kitCatalogo = "decoracao-4m";
+      valor = 730;
+      pegueEMonte = false;
+    }
+  }
+
+  if (!kitCatalogo) {
+    if (/\bkit\s*festa\s*m[eé]dia|festa\s+m[eé]dia\b/i.test(recentKitText) && !exploring) {
+      kitCatalogo = "media";
+      valor = 450;
+    } else if (/\bintermedi[aá]ria\b/i.test(recentKitText) && !exploring) {
+      kitCatalogo = "intermediaria";
+      valor = 350;
+    } else if (/\bpocket\b/i.test(recentKitText) && !exploring) {
+      kitCatalogo = "pocket";
+      valor = 250;
+    }
   }
 
   const priceHits = [
-    ...t.matchAll(
+    ...recentKitText.matchAll(
       /(?:r\$\s*)?(100|130|160)(?:\s*reais)?|quero a de\s*(100|130|160)|pacote\s*(?:de\s*)?(100|130|160)/gi
     ),
   ];
-  // Só aplica Festa na Mesa se não pediu kit maior na mensagem recente
-  if (!kitCatalogo && priceHits.length) {
+  // Só aplica Festa na Mesa se não pediu kit maior e não está só explorando
+  if (!kitCatalogo && priceHits.length && !exploring) {
     const last = priceHits[priceHits.length - 1];
     const n = Number(last[1] || last[2] || last[3]);
     if (n === 100) {
@@ -337,8 +379,21 @@ export function extractSaleSlots(transcript: string): SaleSlots {
       valor = 160;
       pegueEMonte = true;
     }
-  } else if (!kitCatalogo && /festa na mesa/i.test(t)) {
+  } else if (!kitCatalogo && /festa na mesa/i.test(recentKitText)) {
     pegueEMonte = true;
+  }
+
+  // Explorando "menor / não muito grande" → limpa kit grande herdado
+  if (exploring && (inferKitBand(lastMsg) === "medio" || inferKitBand(lastMsg) === "pequeno" || inferKitBand(lastMsg) === "mesa")) {
+    if (kitCatalogo === "decoracao-6m" || kitCatalogo === "decoracao-4m") {
+      kitCatalogo = null;
+      valor = null;
+    }
+  }
+  if (exploring && !/\b(100|130|160|pocket|intermedi|m[eé]dia|6\s*m|4\s*m|festa-mesa)\b/i.test(lastMsg)) {
+    // Ainda escolhendo — não trava kit
+    kitCatalogo = null;
+    valor = null;
   }
 
   let dataISO: string | null = null;
@@ -415,8 +470,11 @@ export function extractSaleSlots(transcript: string): SaleSlots {
 
   const confirmou =
     /\b(sim|pode fechar|pode registrar|fechado|confirmo|pode criar|quero essa|pode ser)\b/i.test(
-      latest
-    ) && !wantsKitChange(latest) && !isCatalogAsk(latest);
+      lastMsg
+    ) &&
+    !isExploringOptions(lastMsg) &&
+    !wantsKitChange(lastMsg) &&
+    !isCatalogAsk(lastMsg);
 
   return {
     kitCatalogo,
@@ -1122,7 +1180,7 @@ function contextualFallback(
     );
   }
 
-  if (slotsComplete(slots) && !wantsKitChange(userMessage)) {
+  if (slotsComplete(slots) && !isExploringOptions(userMessage)) {
     const kitLabel = slots.kitCatalogo?.startsWith("festa-mesa")
       ? `pacote R$${slots.valor}`
       : `${slots.kitCatalogo} R$${slots.valor}`;
@@ -1278,14 +1336,8 @@ async function runSalesFunnelInner(
   const slots = extractSaleSlots(transcript);
   console.log("[funil] slots:", formatSlotsBlock(slots));
 
-  // Orientação humana: catálogo / valor vago / troca — NÃO despejar lista inteira
-  if (
-    (isCatalogAsk(params.userMessage) ||
-      wantsKitChange(params.userMessage) ||
-      isVaguePriceAsk(params.userMessage) ||
-      isUndecided(params.userMessage)) &&
-    djDecorClient.isEnabled()
-  ) {
+  // Orientação humana: catálogo / valor vago / troca / tamanho — NÃO despejar lista nem fechar venda antiga
+  if (isExploringOptions(params.userMessage) && djDecorClient.isEnabled()) {
     try {
       const cat = await getCatalog();
       return {
@@ -1294,7 +1346,10 @@ async function runSalesFunnelInner(
           userMessage: params.userMessage,
           contactName: params.contactName,
           posts: params.posts,
-          changing: Boolean(wantsKitChange(params.userMessage) && ctx.festaId),
+          changing: Boolean(
+            wantsKitChange(params.userMessage) ||
+              /\b(menor|n[aã]o\s+muito\s+grande)\b/i.test(params.userMessage)
+          ),
         }),
         festaId: ctx.festaId,
       };
@@ -1307,10 +1362,7 @@ async function runSalesFunnelInner(
   const justCompleted =
     slotsComplete(slots) &&
     !ctx.festaId &&
-    !isCatalogAsk(params.userMessage) &&
-    !wantsKitChange(params.userMessage) &&
-    !isVaguePriceAsk(params.userMessage) &&
-    !isUndecided(params.userMessage) &&
+    !isExploringOptions(params.userMessage) &&
     (slots.confirmou ||
       /tema|data|rua|montar|endere[cç]o|happy birthday|led|130|100|160/i.test(
         params.userMessage

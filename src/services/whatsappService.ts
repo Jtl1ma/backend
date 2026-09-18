@@ -50,6 +50,30 @@ export interface WhatsAppMessage {
   messageId?: string;
 }
 
+/** Evita processar o mesmo wamid duas vezes (retry Meta / corrida). */
+const inboundLocks = new Set<string>();
+const inboundDoneAt = new Map<string, number>();
+const INBOUND_DEDUP_TTL_MS = 10 * 60 * 1000;
+
+function claimInboundMessage(messageId?: string): boolean {
+  if (!messageId) return true;
+  const now = Date.now();
+  for (const [id, at] of inboundDoneAt) {
+    if (now - at > INBOUND_DEDUP_TTL_MS) inboundDoneAt.delete(id);
+  }
+  if (inboundDoneAt.has(messageId) || inboundLocks.has(messageId)) {
+    return false;
+  }
+  inboundLocks.add(messageId);
+  return true;
+}
+
+function releaseInboundMessage(messageId?: string, processed = true) {
+  if (!messageId) return;
+  inboundLocks.delete(messageId);
+  if (processed) inboundDoneAt.set(messageId, Date.now());
+}
+
 async function sendAndMirrorToCrm(params: {
   to: string;
   text: string;
@@ -68,6 +92,28 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
   console.log("[DEBUG] processIncomingMessage iniciado:", message);
   const { from, text } = message;
 
+  if (!claimInboundMessage(message.messageId)) {
+    console.warn(
+      `[whatsapp] ignorando wamid duplicado: ${message.messageId}`
+    );
+    return {
+      responseText: null,
+      sentiment: "neutral",
+      skippedAi: true,
+      duplicate: true,
+    };
+  }
+
+  try {
+    return await processIncomingMessageInner(message);
+  } finally {
+    releaseInboundMessage(message.messageId, true);
+  }
+}
+
+async function processIncomingMessageInner(message: WhatsAppMessage) {
+  const { from, text } = message;
+
   const crm = await djDecorClient.syncInbound({
     waId: from,
     texto: text,
@@ -80,15 +126,34 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
 
   if (!crm) {
     console.warn(
-      "[dj-decor] Mensagem NÃO espelhada no CRM. Confira DJDECOR_API_URL e DJDECOR_API_TOKEN no Render."
+      "[dj-decor] Mensagem NÃO espelhada no CRM. Confira DJDECOR_API_URL e DJDECOR_API_TOKEN no Render. Sem CRM, não respondo pra evitar duplicata."
     );
-  } else {
-    console.log(
-      `[dj-decor] sync OK conversa=${crm.conversaId} modo=${crm.modo} shouldRunAgent=${crm.shouldRunAgent}`
-    );
+    return {
+      responseText: null,
+      sentiment: "neutral",
+      skippedAi: true,
+      crmFailed: true,
+    };
   }
 
-  const conversaId = crm?.conversaId ?? null;
+  console.log(
+    `[dj-decor] sync OK conversa=${crm.conversaId} modo=${crm.modo} shouldRunAgent=${crm.shouldRunAgent} created=${crm.created}`
+  );
+
+  const conversaId = crm.conversaId;
+
+  // Já processada (retry Meta / corrida no banco)
+  if (!crm.created) {
+    console.warn(
+      `[whatsapp] inbound já existia (created=false) wamid=${message.messageId} — não respondo de novo`
+    );
+    return {
+      responseText: null,
+      sentiment: "neutral",
+      skippedAi: true,
+      duplicate: true,
+    };
+  }
 
   try {
     const db = getDatabase();
@@ -100,7 +165,7 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
     console.warn("[sqlite] falha ao salvar contato (seguindo mesmo assim):", err);
   }
 
-  if (crm && !crm.shouldRunAgent) {
+  if (!crm.shouldRunAgent) {
     if (crm.handoffRecorrente && crm.sugerido) {
       const handoffText =
         `Oi! Vi que você já fez festa com a gente 🎈 ` +

@@ -148,17 +148,28 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
   const weekend = isWeekend();
   const posts = await fetchInstagramPosts();
 
-  const funnel = await runSalesFunnel({
-    userMessage: text,
-    waId: from,
-    contactName: message.contactName,
-    conversaId,
-    cliente: crm?.cliente ?? null,
-    festaId: crm?.festaId ?? null,
-    vendedorId: crm?.sugerido?.vendedorId ?? null,
-    posts,
-  });
-  const responseText = funnel.responseText;
+  let responseText: string;
+  let festaId: string | null | undefined = crm?.festaId ?? null;
+  try {
+    const funnel = await runSalesFunnel({
+      userMessage: text,
+      waId: from,
+      contactName: message.contactName,
+      conversaId,
+      cliente: crm?.cliente ?? null,
+      festaId: crm?.festaId ?? null,
+      vendedorId: crm?.sugerido?.vendedorId ?? null,
+      posts,
+    });
+    responseText = funnel.responseText;
+    festaId = funnel.festaId;
+  } catch (err: any) {
+    console.error("[whatsapp] funil falhou:", err?.message || err);
+    const nome = message.contactName?.split(" ")[0];
+    responseText = nome
+      ? `Oi, ${nome}! Recebi sua mensagem 💛 Em que posso te ajudar?`
+      : "Oi! Recebi sua mensagem 💛 Em que posso te ajudar?";
+  }
 
   await sendAndMirrorToCrm({
     to: from,
@@ -199,7 +210,7 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
 
   await updateAnalytics(from, weekend);
 
-  return { responseText, sentiment, festaId: funnel.festaId };
+  return { responseText, sentiment, festaId };
 }
 
 export async function sendMessage(to: string, text: string) {

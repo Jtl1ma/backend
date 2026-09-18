@@ -379,41 +379,49 @@ async function dispatchTool(
   }
 }
 
-async function chatCompletion(messages: ChatMessage[]): Promise<any> {
+async function chatCompletion(
+  messages: ChatMessage[],
+  opts?: { withTools?: boolean }
+): Promise<any> {
   const openRouterUrl =
     config.openrout.openUrl ||
     config.openrout.url ||
     "https://openrouter.ai/api/v1/chat/completions";
+  const withTools = opts?.withTools !== false;
 
   let lastError: Error | null = null;
   for (const model of freeModeles) {
     try {
+      const body: Record<string, unknown> = {
+        model,
+        messages,
+        temperature: 0.5,
+        max_tokens: 280,
+      };
+      if (withTools) {
+        body.tools = TOOLS;
+        body.tool_choice = "auto";
+      }
+
       const response = await fetch(openRouterUrl, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${config.openrout.apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          model,
-          messages,
-          tools: TOOLS,
-          tool_choice: "auto",
-          temperature: 0.5,
-          max_tokens: 280,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
-        const body = await response.text();
-        throw new Error(`${model} HTTP ${response.status}: ${body.slice(0, 200)}`);
+        const errBody = await response.text();
+        throw new Error(`${model} HTTP ${response.status}: ${errBody.slice(0, 200)}`);
       }
 
       const data = await response.json();
       if (!data?.choices?.[0]) {
         throw new Error(`${model} sem choices`);
       }
-      console.log(`[funil] modelo ok: ${model}`);
+      console.log(`[funil] modelo ok: ${model} tools=${withTools}`);
       return data;
     } catch (err: any) {
       lastError = err;
@@ -423,10 +431,46 @@ async function chatCompletion(messages: ChatMessage[]): Promise<any> {
   throw lastError || new Error("Nenhum modelo respondeu no funil");
 }
 
+async function chatCompletionResilient(messages: ChatMessage[]): Promise<any> {
+  try {
+    return await chatCompletion(messages, { withTools: true });
+  } catch (err: any) {
+    console.warn(
+      "[funil] tools falharam, tentando sem tools:",
+      err?.message || err
+    );
+    return chatCompletion(messages, { withTools: false });
+  }
+}
+
 /**
  * Funil de vendas: histórico do CRM + tools (catálogo, agenda, criar venda).
  */
 export async function runSalesFunnel(params: {
+  userMessage: string;
+  waId: string;
+  contactName?: string | null;
+  conversaId?: string | null;
+  vendedorId?: string | null;
+  cliente?: { id: string; nome: string; telefone: string } | null;
+  festaId?: string | null;
+  posts?: Array<{ caption?: string; permalink?: string }>;
+}): Promise<{ responseText: string; festaId?: string | null }> {
+  try {
+    return await runSalesFunnelInner(params);
+  } catch (err: any) {
+    console.error("[funil] erro fatal:", err?.message || err);
+    const nome = params.contactName?.split(" ")[0];
+    return {
+      responseText: nome
+        ? `Oi, ${nome}! Boa noite 💛 Em que posso te ajudar na festa?`
+        : "Oi! Boa noite 💛 Em que posso te ajudar na festa?",
+      festaId: params.festaId,
+    };
+  }
+}
+
+async function runSalesFunnelInner(params: {
   userMessage: string;
   waId: string;
   contactName?: string | null;
@@ -467,8 +511,13 @@ export async function runSalesFunnel(params: {
       if (!ctx.vendedorId && data?.conversa?.vendedorId) {
         ctx.vendedorId = data.conversa.vendedorId;
       }
-      if (!ctx.festaId && data?.conversa?.festaId) {
-        ctx.festaId = data.conversa.festaId;
+      const festaStatus = data?.conversa?.festa?.status;
+      const festaIdCrm = data?.conversa?.festaId;
+      // Festa cancelada não bloqueia novo fechamento
+      if (festaIdCrm && festaStatus !== "CANCELADO") {
+        ctx.festaId = festaIdCrm;
+      } else {
+        ctx.festaId = null;
       }
     } catch (err: any) {
       console.warn("[funil] não carregou histórico CRM:", err?.message || err);
@@ -508,7 +557,7 @@ export async function runSalesFunnel(params: {
 
   let replyText = "";
   for (let step = 0; step < 8; step++) {
-    const completion = await chatCompletion(messages);
+    const completion = await chatCompletionResilient(messages);
     const choice = completion.choices?.[0]?.message;
     if (!choice) break;
 

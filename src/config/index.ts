@@ -54,14 +54,12 @@ export default {
     whatsappNumber: process.env.TWILIO_WHATSAPP_NUMBER
   },*/
 
-// Lista de modelos gratuitos em ordem de preferência
+ // Lista de modelos (OpenRouter). Evitar IDs inventados tipo gpt-5.x no topo.
  export const freeModeles = [
-   "gpt-5.5",
    "openrouter/free",
-   "gpt-5.4-mini",
-   "nvidia/nemotron-3-ultra-550b-a55b:free",
-   "openai/gpt-oss-120b:free",
-   "google/gemma-4-31b-it:free",
    "qwen/qwen3-next-80b-a3b-instruct:free",
+   "google/gemma-4-31b-it:free",
+   "openai/gpt-oss-120b:free",
+   "nvidia/nemotron-3-ultra-550b-a55b:free",
  ];
   

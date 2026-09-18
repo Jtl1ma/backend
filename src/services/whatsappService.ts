@@ -115,15 +115,40 @@ export async function processIncomingMessage(message: WhatsAppMessage) {
 
   // 9. Integração com dj-decor: detectar intenção de agendamento
   try {
+    if (!djDecorClient.isEnabled()) {
+      return { responseText, sentiment };
+    }
+
     const lowerText = text.toLowerCase();
-    const hasScheduleIntent = /\b(quero agendar|agendar|reservar|marcar|festa|evento|aniversário|casamento)\b/i.test(lowerText);
+    const hasScheduleIntent =
+      /\b(quero agendar|agendar|reservar|marcar|festa|evento|anivers[aá]rio|casamento)\b/i.test(
+        lowerText
+      );
     if (hasScheduleIntent) {
-      const disponivel = await djDecorClient.getDisponibilidade();
-      const respostaAgenda = `📅 Agendamento solicitado. Datas disponíveis: ${disponivel.data?.map((d: any) => d.data).join(', ') || 'verificar com atendente'}. Deseja que eu reserve uma dessas datas?`;
+      const agenda = await djDecorClient.getDisponibilidade();
+      const ocupadas = agenda.detalhe
+        ?.map((d) => {
+          const hora = d.montagem
+            ? new Date(d.montagem).toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: process.env.TIMEZONE || "America/Sao_Paulo",
+              })
+            : "";
+          return hora ? `${d.tema} (${hora})` : d.tema;
+        })
+        .filter(Boolean);
+
+      const respostaAgenda = agenda.disponivel
+        ? `📅 Vi no sistema: no dia de hoje temos *${agenda.festasNoDia}* festa(s) marcada(s)${
+            ocupadas?.length ? `: ${ocupadas.join(", ")}` : ""
+          }. Ainda dá para encaixar — me diga a *data* e o *horário* que você prefere que eu verifico certinho!`
+        : `📅 Esse dia já está bem cheio no sistema (*${agenda.festasNoDia}* festas). Me passa outra data que eu confiro a disponibilidade pra você 😊`;
+
       await sendMessage(from, respostaAgenda);
     }
   } catch (e: any) {
-    console.error('Falha ao consultar disponibilidade no dj-decor:', e.message);
+    console.error("Falha ao consultar disponibilidade no dj-decor:", e.message);
   }
 
   return { responseText, sentiment };

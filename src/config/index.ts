@@ -37,7 +37,8 @@ export default {
   },
   
   djdecor: {
-    baseUrl: process.env.DJDECOR_URL
+    baseUrl: process.env.DJDECOR_API_URL || process.env.DJDECOR_URL || '',
+    apiToken: process.env.DJDECOR_API_TOKEN || process.env.IA_SERVICE_TOKEN || '',
   }
 
 };

@@ -50,6 +50,8 @@ export interface CriarOrcamentoInput {
   conversaId?: string;
   montadorEquipeId?: string | null;
   desmontadorEquipeId?: string | null;
+  /** Se true, CRM fecha a festa (FECHADO) após criar. */
+  fechar?: boolean;
 }
 
 export interface CatalogoKit {

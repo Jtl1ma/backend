@@ -21,11 +21,12 @@ Regras de conversa (obrigatórias):
 - "130" / "R$130" / "de 130" na Festa na Mesa = pacote de CENTO E TRINTA REAIS (kit festa-mesa-com-mesa). NÃO é arco de 130cm.
 - Pacotes Festa na Mesa: R$100 (festa-mesa), R$130 (festa-mesa-com-mesa), R$160 (festa-mesa-mesa-bolas). Pegue-e-monte no depósito; leva/busca +R$30.
 - Quando faltar só 1 dado, peça só esse. Quando estiver tudo completo, resuma e pergunte se pode registrar no sistema — ou use a tool criar_venda se a cliente já confirmou.
+- Em criar_venda, preencha observacoes e notasInternas com TODOS os detalhes (kit, valor, tema, data, hora, endereço, modalidade, campanha). Não deixe genérico.
 - 2–5 frases. Varie o texto. Emojis 0–2.
 
 Venda (tools):
 - Use listar_catalogo / montar_orcamento / checar_agenda / criar_venda. Não invente preço.
-- criar_venda só com confirmadoPeloCliente=true (ou quando ela já confirmou kit+data+hora+local).
+- criar_venda só com confirmadoPeloCliente=true (ou quando ela já confirmou kit+data+hora+local). A tool fecha a venda no CRM (FECHADO).
 - Reclamação/desconto especial → escalar_humano.
 `;
 
@@ -273,11 +274,73 @@ function toIsoDateTime(dateISO: string, hm: string): string {
   return `${dateISO}T${h.padStart(2, "0")}:${(m || "00").padStart(2, "0")}:00-03:00`;
 }
 
+function buildObservacoesCompletas(params: {
+  slots: SaleSlots;
+  contactName?: string | null;
+  waId: string;
+  posts?: Array<{ caption?: string; permalink?: string }>;
+  transcript?: string;
+}): { observacoes: string; notasInternas: string } {
+  const { slots, contactName, waId, posts, transcript } = params;
+  const dataBr = slots.dataISO
+    ? slots.dataISO.split("-").reverse().join("/")
+    : "—";
+  const campanha =
+    posts?.some((p) => /festa na mesa|curios|vip/i.test(p.caption || "")) ||
+    /curios|campanha vip|vip/i.test(transcript || "");
+  const link = posts?.find((p) => p.permalink)?.permalink;
+
+  const observacoes = [
+    "Venda via WhatsApp (Debysinha)",
+    `Cliente: ${contactName || "—"} · Tel: ${waId}`,
+    `Pacote: ${slots.kitCatalogo || "—"} · R$ ${slots.valor ?? "—"}`,
+    `Tema: ${slots.tema || "—"}`,
+    `Data: ${dataBr} · Montagem: ${slots.horaMontagem || "—"}`,
+    `Local: ${slots.endereco || "—"}`,
+    slots.pegueEMonte
+      ? "Modalidade: Pegue e monte (retirada/devolução no depósito)"
+      : "Modalidade: Montagem pela equipe",
+    slots.foraParacambi ? "Fora de Paracambi: sim" : "Fora de Paracambi: não",
+    campanha
+      ? `Campanha VIP Festa na Mesa${link ? ` · ${link}` : ""} · palavra CURIOSA`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 1900);
+
+  const trechosCliente = (transcript || "")
+    .split("\n")
+    .filter((l) => /^IN:/i.test(l))
+    .map((l) => l.replace(/^IN:\s*/i, "").trim())
+    .filter(Boolean)
+    .slice(-8);
+
+  const notasInternas = [
+    "Notas da conversa (IA):",
+    slots.tema ? `· Tema/detalhe: ${slots.tema}` : null,
+    campanha ? "· Entrou por campanha VIP / CURIOSA" : null,
+    trechosCliente.length
+      ? `· Pedidos do cliente:\n${trechosCliente.map((t) => `  - ${t}`).join("\n")}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 3900);
+
+  return { observacoes, notasInternas };
+}
+
 async function tryCreateSaleFromSlots(
   ctx: FunnelContext,
   slots: SaleSlots,
-  contactName?: string | null
-): Promise<{ ok: boolean; festaId?: string; error?: string }> {
+  opts?: {
+    contactName?: string | null;
+    posts?: Array<{ caption?: string; permalink?: string }>;
+    transcript?: string;
+    fechar?: boolean;
+  }
+): Promise<{ ok: boolean; festaId?: string; status?: string; error?: string }> {
   if (!slotsComplete(slots) || !slots.kitCatalogo || !slots.valor || !slots.dataISO) {
     return { ok: false, error: "slots incompletos" };
   }
@@ -287,10 +350,17 @@ async function tryCreateSaleFromSlots(
   const kit = cat.kits.find((k) => k.id === slots.kitCatalogo);
   const horaM = slots.horaMontagem || "11:00";
   const horaF = slots.horaFesta || slots.horaMontagem || "15:00";
+  const { observacoes, notasInternas } = buildObservacoesCompletas({
+    slots,
+    contactName: opts?.contactName,
+    waId: ctx.waId,
+    posts: opts?.posts,
+    transcript: opts?.transcript,
+  });
 
   const payload: CriarOrcamentoInput = {
     nomeCliente: String(
-      ctx.cliente?.nome || contactName || "Cliente WhatsApp"
+      ctx.cliente?.nome || opts?.contactName || "Cliente WhatsApp"
     ),
     telefone: String(ctx.cliente?.telefone || ctx.waId),
     tema: slots.tema || "Festa na Mesa",
@@ -304,18 +374,24 @@ async function tryCreateSaleFromSlots(
     kitCatalogo: slots.kitCatalogo,
     pegueEMonte: slots.pegueEMonte,
     itensExtras: kit?.itens ? [...kit.itens] : [],
-    observacoes: "Criado pela Debysinha (WhatsApp) — campanha VIP / funil",
+    observacoes,
+    notasInternas,
     foraParacambi: slots.foraParacambi,
     origem: "WhatsApp",
     conversaId: ctx.conversaId || undefined,
     vendedorId: ctx.vendedorId || undefined,
+    fechar: opts?.fechar !== false,
   };
 
   try {
     const created = await djDecorClient.criarOrcamento(payload);
     const id = created?.festa?.id;
     if (id) ctx.festaId = id;
-    return { ok: true, festaId: id };
+    return {
+      ok: true,
+      festaId: id,
+      status: created?.festa?.status,
+    };
   } catch (err: any) {
     return {
       ok: false,
@@ -660,6 +736,30 @@ async function dispatchTool(
         args.tamanhoDecoracao || kit?.tamanhoSugerido || "M"
       ) || "M") as "P" | "M" | "G" | "GG";
 
+      const toolSlots: SaleSlots = {
+        kitCatalogo: kitId,
+        valor: Number(args.valor),
+        tema: String(args.tema),
+        dataISO: String(args.dataEvento).slice(0, 10),
+        horaMontagem: String(args.horarioMontagem).match(/T(\d{2}:\d{2})/)?.[1] || null,
+        horaFesta: null,
+        endereco,
+        pegueEMonte,
+        foraParacambi,
+        confirmou: true,
+      };
+      const enriched = buildObservacoesCompletas({
+        slots: toolSlots,
+        contactName: String(args.nomeCliente || ctx.contactName || ""),
+        waId: ctx.waId,
+      });
+      const observacoes =
+        (args.observacoes ? String(args.observacoes).trim() : "") ||
+        enriched.observacoes;
+      const notasInternas =
+        (args.notasInternas ? String(args.notasInternas).trim() : "") ||
+        enriched.notasInternas;
+
       const payload: CriarOrcamentoInput = {
         nomeCliente: String(args.nomeCliente || ctx.contactName || "Cliente"),
         telefone: String(args.telefone || ctx.cliente?.telefone || ctx.waId),
@@ -672,14 +772,13 @@ async function dispatchTool(
         kitCatalogo: kitId,
         pegueEMonte,
         itensExtras,
-        observacoes: args.observacoes
-          ? String(args.observacoes)
-          : "Criado pela Debysinha (WhatsApp)",
-        notasInternas: args.notasInternas ? String(args.notasInternas) : null,
+        observacoes,
+        notasInternas,
         foraParacambi,
         origem: "WhatsApp",
         conversaId: ctx.conversaId || undefined,
         vendedorId: ctx.vendedorId || undefined,
+        fechar: true,
       };
 
       try {
@@ -936,22 +1035,24 @@ async function runSalesFunnelInner(
       ));
 
   if (justCompleted && djDecorClient.isEnabled()) {
-    const created = await tryCreateSaleFromSlots(
-      ctx,
-      slots,
-      params.contactName
-    );
+    const created = await tryCreateSaleFromSlots(ctx, slots, {
+      contactName: params.contactName,
+      posts: params.posts,
+      transcript,
+      fechar: true,
+    });
     if (created.ok) {
       const dataBr = slots.dataISO!.split("-").reverse().join("/");
       const nome = params.contactName?.split(/\s+/)[0] || "";
+      const statusLabel =
+        created.status === "FECHADO" ? "fechei" : "registrei";
       return {
         responseText:
-          `${nome ? nome + ", " : ""}fechei pra você no sistema 💛\n` +
+          `${nome ? nome + ", " : ""}${statusLabel} pra você no sistema 💛\n` +
           `*${slots.tema}* · ${dataBr} · montagem ${slots.horaMontagem} · ${slots.endereco}\n` +
-          `Pacote Festa na Mesa R$${slots.valor} (pegue e monte)` +
-          (slots.confirmou || true
-            ? ". Qualquer ajuste é só falar!"
-            : ". Qualquer ajuste é só falar!"),
+          `Pacote Festa na Mesa R$${slots.valor}` +
+          (slots.pegueEMonte ? " (pegue e monte)" : "") +
+          `. Qualquer ajuste é só falar!`,
         festaId: created.festaId,
       };
     }

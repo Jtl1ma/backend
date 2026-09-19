@@ -7,6 +7,10 @@ import {
   type CatalogoKit,
   type CriarOrcamentoInput,
 } from "../integrations/djDecorClient";
+import {
+  NAMED_TEMAS_RE,
+  scoreCaptionForTheme,
+} from "../themeHashtagOntology";
 import { notifyHumanAttendant } from "./attendantService";
 import { generateAIResponse } from "./aiService";
 import { isWeekend } from "../utils/dateUtils";
@@ -177,209 +181,42 @@ export function wantsVisuals(text: string): boolean {
   );
 }
 
-function normalizeTemaText(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[#_]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** #FundoDoMar / "Fundo do Mar" → fundodomar (padrão das legendas). */
-function temaHashtagSlug(tema: string): string {
-  return normalizeTemaText(tema).replace(/[^a-z0-9]+/g, "");
-}
-
-/** Mantém #hashtags coladas pra casar com #charevelacao na legenda. */
-function normalizeCaptionForHashtags(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase();
-}
-
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** Palavra/frase inteira — NÃO aceita "mar" dentro de "marrom". */
-function hasWholePhrase(haystack: string, needle: string): boolean {
-  const n = normalizeTemaText(needle);
-  if (!n || n.length < 3) return false;
-  const h = normalizeTemaText(haystack);
-  if (n.includes(" ")) {
-    return h.includes(n);
-  }
-  return new RegExp(`(?:^|[^a-z0-9])${escapeRe(n)}(?:[^a-z0-9]|$)`, "i").test(
-    h
-  );
-}
-
-/**
- * Sinônimos fortes por tema (só termos que sozinhos identificam o tema).
- * NÃO inclui pedaços curtos tipo "mar" / "fundo".
- */
-function temaSynonyms(tema: string): string[] {
-  const n = normalizeTemaText(tema);
-  const map: Array<{ keys: string[]; syns: string[] }> = [
-    {
-      keys: ["fundo do mar", "sereia", "under the sea"],
-      syns: [
-        "fundo do mar",
-        "fundodomar",
-        "sereia",
-        "oceano",
-        "peixinho",
-        "nemo",
-        "aquario",
-        "aquário",
-        "marinho",
-        "under the sea",
-        "sereismo",
-      ],
-    },
-    {
-      keys: [
-        "cha revelacao",
-        "chá revelação",
-        "cha de revelacao",
-        "gender reveal",
-        "revelacao",
-      ],
-      syns: [
-        "cha revelacao",
-        "chá revelação",
-        "cha de revelacao",
-        "charevelacao",
-        "revelacao",
-        "revelação",
-        "gender reveal",
-        "menino ou menina",
-      ],
-    },
-    {
-      keys: [
-        "sitio do pica pau",
-        "sitio do picapau",
-        "pica pau amarelo",
-        "picapau",
-      ],
-      syns: [
-        "sitio do pica pau amarelo",
-        "sitiodopicapaualamarelo",
-        "pica pau",
-        "picapau",
-        "monteiro lobato",
-      ],
-    },
-    {
-      keys: ["fazendinha", "fazenda"],
-      syns: ["fazendinha", "fazenda"],
-    },
-    {
-      keys: ["looney", "baby looney"],
-      syns: ["looney", "looney tunes", "baby looney", "babylooneytunes"],
-    },
-    { keys: ["safari", "selva"], syns: ["safari", "selva", "jungle"] },
-    { keys: ["minnie", "mickey"], syns: ["minnie", "mickey"] },
-    { keys: ["frozen", "elsa"], syns: ["frozen", "elsa", "olaf"] },
-    { keys: ["boteco"], syns: ["boteco", "barzinho"] },
-    { keys: ["bluey"], syns: ["bluey"] },
-    { keys: ["neon"], syns: ["neon"] },
-    { keys: ["ursinho", "ursinha"], syns: ["ursinho", "ursinha", "bear"] },
-  ];
-  for (const row of map) {
-    if (
-      row.keys.some((k) => {
-        const kk = normalizeTemaText(k);
-        return n.includes(kk) || kk.includes(n);
-      })
-    ) {
-      return Array.from(new Set(row.syns.map(normalizeTemaText)));
-    }
-  }
-  return n ? [n] : [];
-}
-
-/**
- * Score 0–100 só com evidência forte na legenda/tema.
- * Prioridade máxima: hashtag colada (#fundodomar, #charevelacao).
- */
+/** Alias — score com ontologia de hashtags/intenções. */
 function scoreCaptionAgainstTema(
   caption: string | null | undefined,
   tema: string | null
 ): number {
-  if (!tema) return 0;
-  const raw = String(caption || "");
-  if (!raw.trim()) return 0;
-  const capHash = normalizeCaptionForHashtags(raw);
-  const cap = normalizeTemaText(raw);
-  const q = normalizeTemaText(tema);
-  const slug = temaHashtagSlug(tema);
-
-  // 1) Hashtag exata na legenda — padrão que você vai usar nas postagens
-  if (slug.length >= 4) {
-    const hashtagRe = new RegExp(`#${escapeRe(slug)}(?![a-z0-9])`, "i");
-    if (hashtagRe.test(capHash)) return 100;
-    // sem #, mas slug colado (fundodomar)
-    if (new RegExp(`(?:^|[^a-z0-9])${escapeRe(slug)}(?![a-z0-9])`, "i").test(capHash)) {
-      return 98;
-    }
-  }
-
-  // Hashtags dos sinônimos (#charevelacao etc.)
-  for (const syn of temaSynonyms(q)) {
-    const synSlug = temaHashtagSlug(syn);
-    if (synSlug.length < 4) continue;
-    if (new RegExp(`#${escapeRe(synSlug)}(?![a-z0-9])`, "i").test(capHash)) {
-      return 100;
-    }
-  }
-
-  if (hasWholePhrase(cap, q) || cap.replace(/\s/g, "").includes(q.replace(/\s/g, ""))) {
-    return 100;
-  }
-
-  for (const syn of temaSynonyms(q)) {
-    if (syn.length >= 4 && hasWholePhrase(cap, syn)) {
-      return syn.includes(" ") || syn.length >= 6 ? 95 : 85;
-    }
-  }
-
-  const parts = q
-    .split(/\s+/)
-    .filter(
-      (p) =>
-        p.length >= 4 &&
-        !["para", "com", "festa", "tema", "foto", "kit"].includes(p)
-    );
-  if (parts.length >= 2 && parts.every((p) => hasWholePhrase(cap, p))) {
-    return 90;
-  }
-  if (parts.length === 1 && parts[0]!.length >= 8 && hasWholePhrase(cap, parts[0]!)) {
-    return 88;
-  }
-
-  return 0;
+  return scoreCaptionForTheme(caption, tema);
 }
-
-const NAMED_TEMAS_RE =
-  /\b(fundo\s+do\s+mar|ch[aá]\s*(de\s*)?revela[cç][aã]o|gender\s*reveal|s[ií]tio\s+do\s+pica\s*pau(?:\s+amarelo)?|happy\s*birthday|preto\s+e\s+branco|minnie|safari|boteco|frozen|bluey|fazendinha|discoteca|jardim|moranguinho|neon|sereia|oceano|unicornio|unic[oó]rnio|dinossauro|mario|luccas\s+neto|looney\s*tunes|baby\s+looney|ursinho|ursinha)\b/i;
 
 function extractTemaHint(text: string, slotsTema?: string | null): string | null {
   const t = text;
 
-  // 1) Nome conhecido na mensagem ATUAL (sempre ganha do histórico)
   const named = t.match(NAMED_TEMAS_RE)?.[0] || null;
-  if (named) return named.trim();
+  if (named) {
+    const gender = t.match(/\b(menino|menina)\b/i)?.[0];
+    const style = t.match(/\b(moderno|elegante|luxo|r[uú]stico)\b/i)?.[0];
+    let label = named.trim();
+    if (gender && !new RegExp(gender, "i").test(label)) {
+      label = `${label} ${gender}`;
+    }
+    if (
+      style &&
+      !new RegExp(style, "i").test(label) &&
+      /casamento/i.test(label)
+    ) {
+      label = `${label} ${style}`;
+    }
+    return label;
+  }
 
-  // 2) "tema X" / "tema de X"
   const temaM = t.match(
     /tema\s+(?:[ée]\s+|de\s+|do\s+|da\s+)?([^\n.?!]{3,60})/i
   );
-  if (temaM?.[1] && !/^(da festa|da decora|qual|foto|imagem|kit)/i.test(temaM[1])) {
+  if (
+    temaM?.[1] &&
+    !/^(da festa|da decora|qual|foto|imagem|kit)/i.test(temaM[1])
+  ) {
     let cand = temaM[1].trim();
     cand = cand
       .replace(/\s+(com|pra|para|e|no|na)\s+(kit|festa|pacote).*$/i, "")
@@ -387,16 +224,21 @@ function extractTemaHint(text: string, slotsTema?: string | null): string | null
     if (cand.length >= 3) return cand;
   }
 
-  // 3) "foto de X" / "foto do tema X" / "imagem de X" sem a palavra tema isolada
   const fotoDe = t.match(
     /(?:foto|fotos|imagem|imagens|refer[eê]ncia)\s+(?:do\s+tema\s+|da\s+festa\s+|de\s+|do\s+|da\s+|com\s+(?:o\s+)?tema\s+(?:de\s+|do\s+|da\s+)?)([^\n.?!]{3,60})/i
   );
-  if (fotoDe?.[1] && !/^(kit|festa\s+m[eé]dia|pacote|decor)/i.test(fotoDe[1])) {
+  if (
+    fotoDe?.[1] &&
+    !/^(kit|festa\s+m[eé]dia|pacote|decor)/i.test(fotoDe[1])
+  ) {
     return fotoDe[1].trim().slice(0, 60);
   }
 
-  // 4) Histórico SÓ se a mensagem atual não trouxe tema novo
-  //    (evita mandar Fundo do Mar quando pediram Chá revelação)
+  const ocasiao = t.match(
+    /\b((?:decora[cç][aã]o\s+de\s+)?casamento(?:\s+\w+){0,2}|festa\s+neon|neon\s+party)\b/i
+  );
+  if (ocasiao?.[1]) return ocasiao[1].trim();
+
   if (slotsTema && slotsTema.length >= 3) {
     const slotNamed = slotsTema.match(NAMED_TEMAS_RE)?.[0] || null;
     return (slotNamed || slotsTema).trim().slice(0, 60);

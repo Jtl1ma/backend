@@ -219,12 +219,12 @@ async function processIncomingMessageInner(message: WhatsAppMessage) {
   const sentimentPromise = Promise.resolve(sentiment);
 
   let posts: Awaited<ReturnType<typeof fetchInstagramPosts>> = [];
-  if (wantsVisuals(text)) {
+  if (wantsVisuals(text) || /\b(foto|imagem|refer[eê]ncia)\b/i.test(text)) {
     // Foto: precisa do IG, mas com timeout curto
     posts = await Promise.race([
       postsPromise,
       new Promise<typeof posts>((resolve) =>
-        setTimeout(() => resolve(igPostsCache?.posts || []), 2500)
+        setTimeout(() => resolve(igPostsCache?.posts || []), 5000)
       ),
     ]);
   } else {
@@ -525,10 +525,10 @@ export async function fetchInstagramPosts(): Promise<
       const params = {
         fields: "id,caption,media_url,permalink,media_type,thumbnail_url",
         access_token: config.instagram.accessToken,
-        limit: 12,
+        limit: 50,
       };
 
-      const response = await axios.get(url, { params, timeout: 4000 });
+      const response = await axios.get(url, { params, timeout: 8000 });
       const posts = response.data?.data || [];
       igPostsCache = { at: Date.now(), posts };
       return posts;

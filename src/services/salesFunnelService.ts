@@ -96,24 +96,92 @@ function wantsEntradaBolas(text: string): boolean {
 
 /** Cliente quer ver fotos / como fica a decoração. */
 export function wantsVisuals(text: string): boolean {
-  return /\b(como\s+(fica|é|vai\s+ficar|ficaria)|mostra(r)?(\s+\w+){0,3}\s+(foto|fotos|imagem|imagens|exemplo|refer[eê]ncia)|(\bver|\bveja|\bquero\s+ver|\bqueria\s+ver|\bpodem?\s+ver)\s+(\w+\s+){0,3}(foto|fotos|imagem|imagens|como\s+fica|o\s+tema|a\s+decor)|tem\s+(foto|fotos|imagem|foro)|refer[eê]ncia(s)?|inspir[aç][aã]o|portf[oó]lio|manda(\s+\w+){0,2}\s+foto|envie(\s+\w+){0,2}\s+foto|mais\s+(fotos?|imagens?)|outras?\s+fotos?)\b/i.test(
+  return /\b(como\s+(fica|é|vai\s+ficar|ficaria)|mostra(r)?(\s+\w+){0,4}\s+(foto|fotos|imagem|imagens|exemplo|refer[eê]ncia)|(\bver|\bveja|\bquero\s+ver|\bqueria\s+ver|\bpodem?\s+ver)\s+(\w+\s+){0,4}(foto|fotos|imagem|imagens|como\s+fica|o\s+tema|a\s+decor)|(pedi|pe[cç]o|manda|envie|envia|me\s+passa)\s+(\w+\s+){0,4}(foto|fotos|imagem|imagens)|uma\s+(foto|imagem)\s+(de|do|da|com)|foto\s+(do|da|de)\s+(kit|tema|festa)|tem\s+(foto|fotos|imagem|foro)|refer[eê]ncia(s)?|inspir[aç][aã]o|portf[oó]lio|manda(\s+\w+){0,2}\s+foto|envie(\s+\w+){0,2}\s+foto|mais\s+(fotos?|imagens?)|outras?\s+fotos?)\b/i.test(
     text
   );
+}
+
+function normalizeTemaText(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Sinônimos para achar o tema no Instagram/CRM mesmo com caption diferente. */
+function temaSearchTerms(tema: string | null): string[] {
+  if (!tema) return [];
+  const n = normalizeTemaText(tema);
+  const base = [n, ...n.split(/\s+/).filter((t) => t.length >= 3)];
+  const syn: Record<string, string[]> = {
+    "fundo do mar": [
+      "fundo do mar",
+      "sereia",
+      "oceano",
+      "peixinho",
+      "peixe",
+      "nemo",
+      "aquario",
+      "bolhas",
+      "marinho",
+      "under the sea",
+    ],
+    safari: ["safari", "selva", "jungle", "leao", "giraffe"],
+    minnie: ["minnie", "mickey", "disney"],
+    frozen: ["frozen", "elsa", "olaf", "frozen"],
+    boteco: ["boteco", "barzinho", "boteco"],
+    fazendinha: ["fazendinha", "fazenda", "sitio", "sítio"],
+    bluey: ["bluey"],
+    neon: ["neon", "balada", "glow"],
+  };
+  for (const [key, words] of Object.entries(syn)) {
+    if (n.includes(key) || key.includes(n)) {
+      return Array.from(new Set([...base, ...words.map(normalizeTemaText)]));
+    }
+  }
+  return Array.from(new Set(base));
+}
+
+function scoreCaptionAgainstTema(
+  caption: string | null | undefined,
+  tema: string | null
+): number {
+  if (!tema) return 10;
+  const cap = normalizeTemaText(caption || "");
+  if (!cap) return 0;
+  const terms = temaSearchTerms(tema);
+  let best = 0;
+  for (const term of terms) {
+    if (term.length < 3) continue;
+    if (cap.includes(term)) {
+      best = Math.max(best, term.includes(" ") ? 100 : 70);
+    } else {
+      // palavra inteira
+      const re = new RegExp(
+        `(?:^|[^a-z0-9])${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^a-z0-9]|$)`,
+        "i"
+      );
+      if (re.test(cap)) best = Math.max(best, 60);
+    }
+  }
+  return best;
 }
 
 function extractTemaHint(text: string, slotsTema?: string | null): string | null {
   const t = text;
   const named =
     t.match(
-      /\b(fundo\s+do\s+mar|happy\s*birthday|preto\s+e\s+branco|minnie|safari|boteco|frozen|bluey|fazendinha|discoteca|jardim|moranguinho|neon|led|boteco|s[ií]tio|fazenda)\b/i
+      /\b(fundo\s+do\s+mar|happy\s*birthday|preto\s+e\s+branco|minnie|safari|boteco|frozen|bluey|fazendinha|discoteca|jardim|moranguinho|neon|sereia|oceano|unicornio|unic[oó]rnio|dinossauro|mario|luccas\s+neto)\b/i
     )?.[0] || null;
   if (named) return named.trim();
 
   const temaM = t.match(
     /tema\s+(?:[ée]\s+|de\s+|do\s+|da\s+)?([^\n.?!]{3,60})/i
   );
-  if (temaM?.[1] && !/^(da festa|da decora|qual|foto|imagem)/i.test(temaM[1])) {
-    return temaM[1].trim();
+  if (temaM?.[1] && !/^(da festa|da decora|qual|foto|imagem|kit)/i.test(temaM[1])) {
+    return temaM[1].replace(/\s+com\s+o\s+tema.*$/i, "").trim() || temaM[1].trim();
   }
 
   if (slotsTema && slotsTema.length >= 3) return slotsTema;
@@ -361,7 +429,7 @@ function extractPostCloseBundle(created: any): PostCloseBundle | null {
   return { portalUrl, pdfUrl, textSuffix, documents };
 }
 
-/** Junta fotos do CRM (por tema) + Instagram (media_url). */
+/** Junta fotos do CRM (por tema) + Instagram (media_url) — só temas que batem. */
 async function collectVisualReferences(params: {
   temaHint: string | null;
   posts?: Array<{
@@ -378,42 +446,65 @@ async function collectVisualReferences(params: {
   const images: FunnelImage[] = [];
   let fromCrm = 0;
   let fromIg = 0;
+  const tema = params.temaHint;
 
   if (djDecorClient.isEnabled()) {
     try {
       const refs = await djDecorClient.buscarReferencias({
-        tema: params.temaHint || undefined,
+        tema: tema || undefined,
         limite: 3,
       });
-      for (const img of refs.imagens || []) {
+      // Se o CRM marcou fallback (tema errado), ignora — Instagram cobre
+      const crmImgs = refs.fallback ? [] : refs.imagens || [];
+      for (const img of crmImgs) {
         if (!img.url) continue;
+        if (
+          tema &&
+          img.tema &&
+          scoreCaptionAgainstTema(img.tema, tema) < 40
+        ) {
+          continue;
+        }
         images.push({
           url: img.url,
-          caption: img.caption || (img.tema ? `Referência · ${img.tema}` : undefined),
+          caption:
+            img.caption ||
+            (img.tema ? `Referência · ${img.tema}` : undefined),
         });
         fromCrm++;
+      }
+      if (refs.fallback) {
+        console.warn(
+          "[funil] CRM retornou fallback de tema; ignorando fotos fora do tema"
+        );
       }
     } catch (err: any) {
       console.warn("[funil] refs CRM:", err?.message || err);
     }
   }
 
-  const temaLc = (params.temaHint || "").toLowerCase();
   const igPosts = params.posts || [];
-  for (const p of igPosts) {
+  const igScored = igPosts
+    .map((p) => {
+      const url =
+        p.media_type && /VIDEO/i.test(p.media_type)
+          ? p.thumbnail_url || p.media_url
+          : p.media_url || p.thumbnail_url;
+      return {
+        p,
+        url,
+        score: scoreCaptionAgainstTema(p.caption, tema),
+      };
+    })
+    .filter((x) => Boolean(x.url))
+    .filter((x) => (tema ? x.score >= 50 : true))
+    .sort((a, b) => b.score - a.score);
+
+  for (const item of igScored) {
     if (images.length >= 4) break;
-    const url = p.media_url || p.thumbnail_url;
-    if (!url) continue;
-    if (p.media_type && /VIDEO/i.test(p.media_type) && !p.thumbnail_url) {
-      continue;
-    }
-    const cap = String(p.caption || "");
-    if (temaLc && !cap.toLowerCase().includes(temaLc.split(/\s+/)[0] || temaLc)) {
-      // sem match forte — ainda assim aceita se ainda temos poucas fotos
-      if (fromCrm >= 2 && fromIg >= 1) continue;
-    }
+    const cap = String(item.p.caption || "");
     images.push({
-      url,
+      url: item.url!,
       caption: cap
         ? `Instagram · ${cap.replace(/\s+/g, " ").trim().slice(0, 80)}`
         : "Instagram · Débora Pimentel",
@@ -425,14 +516,14 @@ async function collectVisualReferences(params: {
     return {
       text:
         prefix +
-        (params.temaHint
-          ? `ainda não achei foto pronta do tema *${params.temaHint}* aqui. Me manda uma referência que você gosta (ou o nome do tema com mais detalhe) que eu te ajudo a visualizar 💛`
-          : "me fala o *tema* (ex.: Happy Birthday, Minnie, Safari…) que eu te mando fotos de referência do nosso acervo e do Instagram 💛"),
+        (tema
+          ? `ainda não achei foto pronta do tema *${tema}* no acervo nem no Instagram agora. Me manda uma referência que você gosta (ou outro nome pro tema) que eu te ajudo 💛`
+          : "me fala o *tema* (ex.: Fundo do Mar, Happy Birthday, Minnie…) que eu busco no nosso acervo e no Instagram 💛"),
       images: [],
     };
   }
 
-  const temaLabel = params.temaHint ? ` de *${params.temaHint}*` : "";
+  const temaLabel = tema ? ` de *${tema}*` : "";
   const fontes = [
     fromCrm ? "nosso acervo" : null,
     fromIg ? "Instagram" : null,
@@ -1667,7 +1758,13 @@ async function runSalesFunnelInner(
   opts?: { forceNoTools?: boolean; socialOnly?: boolean }
 ): Promise<FunnelResult> {
   // Fotos primeiro: caminho rápido (sem catálogo/LLM)
-  if (wantsVisuals(params.userMessage)) {
+  // Inclui correção ("pedi Fundo do Mar e não do Sítio…")
+  const visualCorrection =
+    /\b(n[aã]o\s+(do|da|de)|errado|outra\s+foto|foto\s+errada|mandou\s+errada|tema\s+errado)\b/i.test(
+      params.userMessage
+    ) && Boolean(extractTemaHint(params.userMessage, null));
+
+  if (wantsVisuals(params.userMessage) || visualCorrection) {
     let slotsTema: string | null = null;
     if (params.conversaId && djDecorClient.isEnabled()) {
       try {
@@ -1808,12 +1905,15 @@ async function runSalesFunnelInner(
   }
 
   // Auto-fecha quando dados completos e cliente acabou de confirmar / completar
+  // NUNCA fecha se está pedindo foto / referência
   const justCompleted =
     slotsComplete(slots) &&
     !ctx.festaId &&
+    !wantsVisuals(params.userMessage) &&
+    !/\b(foto|fotos|imagem|imagens|refer[eê]ncia)\b/i.test(params.userMessage) &&
     !isExploringOptions(params.userMessage) &&
     (slots.confirmou ||
-      /tema|data|rua|montar|endere[cç]o|happy birthday|led|130|100|160/i.test(
+      /\b(pode\s+fechar|pode\s+registrar|fechado|confirmo|pode\s+criar)\b/i.test(
         params.userMessage
       ));
 
@@ -1829,10 +1929,18 @@ async function runSalesFunnelInner(
       const nome = params.contactName?.split(/\s+/)[0] || "";
       const statusLabel =
         created.status === "FECHADO" ? "fechei" : "registrei";
+      let kitLabel = `Pacote R$${slots.valor}`;
+      try {
+        const cat = await getCatalog();
+        const kit = cat.kits.find((k) => k.id === slots.kitCatalogo);
+        if (kit) kitLabel = `*${kit.nome}* R$${slots.valor}`;
+      } catch {
+        /* ignore */
+      }
       const base =
         `${nome ? nome + ", " : ""}${statusLabel} pra você no sistema 💛\n` +
         `*${slots.tema}* · ${dataBr} · montagem ${slots.horaMontagem} · ${slots.endereco}\n` +
-        `Pacote Festa na Mesa R$${slots.valor}` +
+        `${kitLabel}` +
         (slots.pegueEMonte ? " (pegue e monte)" : "") +
         `. Qualquer ajuste é só falar!`;
       const suffix = created.postClose?.textSuffix || "";

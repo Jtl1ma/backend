@@ -240,6 +240,11 @@ async function processIncomingMessageInner(message: WhatsAppMessage) {
   let responseText: string;
   let festaId: string | null | undefined = crm?.festaId ?? null;
   let images: Array<{ url: string; caption?: string }> = [];
+  let documents: Array<{
+    url: string;
+    filename: string;
+    caption?: string;
+  }> = [];
   try {
     const funnel = await runSalesFunnel({
       userMessage: text,
@@ -254,6 +259,7 @@ async function processIncomingMessageInner(message: WhatsAppMessage) {
     responseText = funnel.responseText;
     festaId = funnel.festaId;
     images = funnel.images || [];
+    documents = funnel.documents || [];
   } catch (err: any) {
     console.error("[whatsapp] funil falhou:", err?.message || err);
     const nome = message.contactName?.split(" ")[0];
@@ -298,6 +304,25 @@ async function processIncomingMessageInner(message: WhatsAppMessage) {
     text: responseText,
     conversaId,
   });
+
+  for (const doc of documents.slice(0, 2)) {
+    try {
+      await sendDocument(from, doc.url, doc.filename, doc.caption);
+      await djDecorClient.syncOutbound({
+        waId: from,
+        texto: doc.caption
+          ? `[documento] ${doc.caption}`
+          : `[documento] ${doc.filename}`,
+        conversaId: conversaId || undefined,
+        autorTipo: "AI",
+      });
+    } catch (err: any) {
+      console.error(
+        "[whatsapp] falha ao enviar documento:",
+        err?.response?.data || err?.message || err
+      );
+    }
+  }
 
   const mentionedAttendant = detectAttendantMention(text);
   if (mentionedAttendant) {
@@ -385,6 +410,47 @@ export async function sendImage(
       type: "image",
       image: {
         link: imageUrl,
+        ...(caption ? { caption: caption.slice(0, 900) } : {}),
+      },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${config.whatsApp.accessToken}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+  return response.data;
+}
+
+/** Envia PDF/documento por link público (Meta baixa a URL). */
+export async function sendDocument(
+  to: string,
+  documentUrl: string,
+  filename: string,
+  caption?: string
+) {
+  const url = config.whatsApp.url || process.env.WHATSAPP_API_URL;
+  if (!url) {
+    throw new Error("WhatsApp API URL não configurada");
+  }
+
+  console.log(
+    "[DEBUG] sendDocument - to:",
+    to,
+    "doc:",
+    documentUrl.slice(0, 80)
+  );
+
+  const response = await axios.post(
+    url,
+    {
+      messaging_product: "whatsapp",
+      to,
+      type: "document",
+      document: {
+        link: documentUrl,
+        filename: filename.slice(0, 240),
         ...(caption ? { caption: caption.slice(0, 900) } : {}),
       },
     },

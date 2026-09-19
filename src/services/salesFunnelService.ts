@@ -23,6 +23,7 @@ Como conversar:
 - Itens do kit / entrada de bolas: use o catálogo oficial.
 - Fotos/referências: o sistema envia as imagens automaticamente. NUNCA diga que mandou foto se não tiver certeza. Nunca invente link.
 - Fechar venda: só quando ela confirmar. Observações completas.
+- Depois de criar_venda com sucesso, o sistema manda o link do portal + o PDF do contrato. Explique o portal em 1 frase e diga que o contrato vai em seguida — NÃO invente URL.
 - 1–4 frases. Emojis 0–2.
 
 Tools: listar_catalogo / montar_orcamento / checar_agenda / criar_venda (com confirmação). Não invente preço. Desconto especial → escalar_humano.
@@ -309,11 +310,56 @@ function kitDetailsAssistReply(params: {
 }
 
 export type FunnelImage = { url: string; caption?: string };
+export type FunnelDocument = {
+  url: string;
+  filename: string;
+  caption?: string;
+};
 export type FunnelResult = {
   responseText: string;
   festaId?: string | null;
   images?: FunnelImage[];
+  documents?: FunnelDocument[];
 };
+
+type PostCloseBundle = {
+  portalUrl?: string;
+  pdfUrl?: string;
+  textSuffix: string;
+  documents: FunnelDocument[];
+};
+
+function extractPostCloseBundle(created: any): PostCloseBundle | null {
+  const portalUrl =
+    typeof created?.portal?.url === "string" ? created.portal.url : undefined;
+  const pdfUrl =
+    typeof created?.contrato?.pdfUrl === "string"
+      ? created.contrato.pdfUrl
+      : undefined;
+  if (!portalUrl && !pdfUrl) return null;
+
+  const documents: FunnelDocument[] = [];
+  let textSuffix = "";
+
+  if (portalUrl) {
+    textSuffix +=
+      `\n\n🔗 *Portal do cliente*\n${portalUrl}\n` +
+      `Nesse link você acompanha o status da festa, envia referências e assina o contrato quando quiser. É o seu acesso direto com a gente.`;
+  }
+  if (pdfUrl) {
+    documents.push({
+      url: pdfUrl,
+      filename: "contrato-debora-pimentel.pdf",
+      caption:
+        "Contrato de locação com os dados da sua festa (Débora Pimentel Decoradora).",
+    });
+    textSuffix +=
+      `\n\nTe mando também o *contrato em PDF* com os dados certinhos — já com a parte da Débora. ` +
+      `No portal você assina a sua parte quando puder 💛`;
+  }
+
+  return { portalUrl, pdfUrl, textSuffix, documents };
+}
 
 /** Junta fotos do CRM (por tema) + Instagram (media_url). */
 async function collectVisualReferences(params: {
@@ -849,7 +895,13 @@ async function tryCreateSaleFromSlots(
     transcript?: string;
     fechar?: boolean;
   }
-): Promise<{ ok: boolean; festaId?: string; status?: string; error?: string }> {
+): Promise<{
+  ok: boolean;
+  festaId?: string;
+  status?: string;
+  error?: string;
+  postClose?: PostCloseBundle | null;
+}> {
   if (!slotsComplete(slots) || !slots.kitCatalogo || !slots.valor || !slots.dataISO) {
     return { ok: false, error: "slots incompletos" };
   }
@@ -896,10 +948,13 @@ async function tryCreateSaleFromSlots(
     const created = await djDecorClient.criarOrcamento(payload);
     const id = created?.festa?.id;
     if (id) ctx.festaId = id;
+    const postClose = extractPostCloseBundle(created);
+    if (postClose) ctx.postClose = postClose;
     return {
       ok: true,
       festaId: id,
       status: created?.festa?.status,
+      postClose,
     };
   } catch (err: any) {
     return {
@@ -1039,6 +1094,7 @@ interface FunnelContext {
   vendedorId?: string | null;
   cliente?: { id: string; nome: string; telefone: string } | null;
   festaId?: string | null;
+  postClose?: PostCloseBundle | null;
 }
 
 let catalogCache: {
@@ -1342,6 +1398,8 @@ async function dispatchTool(
       try {
         const created = await djDecorClient.criarOrcamento(payload);
         if (created?.festa?.id) ctx.festaId = created.festa.id;
+        const postClose = extractPostCloseBundle(created);
+        if (postClose) ctx.postClose = postClose;
         return created;
       } catch (err: any) {
         return {
@@ -1771,14 +1829,17 @@ async function runSalesFunnelInner(
       const nome = params.contactName?.split(/\s+/)[0] || "";
       const statusLabel =
         created.status === "FECHADO" ? "fechei" : "registrei";
+      const base =
+        `${nome ? nome + ", " : ""}${statusLabel} pra você no sistema 💛\n` +
+        `*${slots.tema}* · ${dataBr} · montagem ${slots.horaMontagem} · ${slots.endereco}\n` +
+        `Pacote Festa na Mesa R$${slots.valor}` +
+        (slots.pegueEMonte ? " (pegue e monte)" : "") +
+        `. Qualquer ajuste é só falar!`;
+      const suffix = created.postClose?.textSuffix || "";
       return {
-        responseText:
-          `${nome ? nome + ", " : ""}${statusLabel} pra você no sistema 💛\n` +
-          `*${slots.tema}* · ${dataBr} · montagem ${slots.horaMontagem} · ${slots.endereco}\n` +
-          `Pacote Festa na Mesa R$${slots.valor}` +
-          (slots.pegueEMonte ? " (pegue e monte)" : "") +
-          `. Qualquer ajuste é só falar!`,
+        responseText: base + suffix,
         festaId: created.festaId,
+        documents: created.postClose?.documents,
       };
     }
     console.warn("[funil] auto-close falhou:", created.error);
@@ -1881,7 +1942,17 @@ async function runSalesFunnelInner(
         replyText = sanitizeReply(choiceText(choice));
         break;
       }
-      if (replyText) return { responseText: replyText, festaId: ctx.festaId };
+      if (replyText) {
+        const suffix = ctx.postClose?.textSuffix || "";
+        const alreadyHasPortal =
+          !!ctx.postClose?.portalUrl &&
+          replyText.includes(ctx.postClose.portalUrl);
+        return {
+          responseText: alreadyHasPortal ? replyText : replyText + suffix,
+          festaId: ctx.festaId,
+          documents: ctx.postClose?.documents,
+        };
+      }
     } catch (err: any) {
       console.warn("[funil] tools falhou:", err?.message || err);
     }
@@ -1896,7 +1967,17 @@ async function runSalesFunnelInner(
     const content = sanitizeReply(
       choiceText(completion.choices?.[0]?.message)
     );
-    if (content) return { responseText: content, festaId: ctx.festaId };
+    if (content) {
+      const suffix = ctx.postClose?.textSuffix || "";
+      const alreadyHasPortal =
+        !!ctx.postClose?.portalUrl &&
+        content.includes(ctx.postClose.portalUrl);
+      return {
+        responseText: alreadyHasPortal ? content : content + suffix,
+        festaId: ctx.festaId,
+        documents: ctx.postClose?.documents,
+      };
+    }
   } catch (err: any) {
     console.warn("[funil] texto falhou:", err?.message || err);
   }

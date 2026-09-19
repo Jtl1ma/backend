@@ -263,9 +263,20 @@ export class DjDecorClient {
     const response = await this.client.post(
       "/api/integracoes/ia/orcamentos",
       input,
-      { headers: this.authHeaders() }
+      { headers: this.authHeaders(), timeout: 60000 }
     );
-    return response.data;
+    return response.data as {
+      ok: boolean;
+      festa: {
+        id: string;
+        status: string;
+        tema: string;
+        valor: number;
+        [key: string]: unknown;
+      };
+      portal?: { url: string; token: string } | null;
+      contrato?: { id: string; pdfUrl: string; geradoEm: string } | null;
+    };
   }
 
   async findByTelefone(telefone: string) {

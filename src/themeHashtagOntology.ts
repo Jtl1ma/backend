@@ -58,6 +58,109 @@ export function detectStyleModifiers(text: string): string[] {
   return found;
 }
 
+/** Tamanhos/kits do catálogo ↔ hashtags que você coloca nas postagens. */
+export type KitSizeId =
+  | "pocket"
+  | "media"
+  | "intermediaria"
+  | "decoracao-4m"
+  | "decoracao-6m"
+  | "festa-mesa";
+
+export const KIT_SIZE_HASHTAGS: Record<KitSizeId, string[]> = {
+  pocket: [
+    "pocket",
+    "poket",
+    "festapocket",
+    "kitpocket",
+    "pocketfesta",
+    "festapoket",
+  ],
+  media: [
+    "festamedia",
+    "media",
+    "kitmedia",
+    "tamanhomedia",
+    "festamedi",
+    "kitfestamedia",
+  ],
+  intermediaria: [
+    "intermediaria",
+    "festaintermediaria",
+    "kitintermediaria",
+    "intermediario",
+  ],
+  "decoracao-4m": [
+    "4m",
+    "decoracao4m",
+    "festa4m",
+    "4metros",
+    "kit4m",
+    "decor4m",
+  ],
+  "decoracao-6m": [
+    "6m",
+    "decoracao6m",
+    "festa6m",
+    "6metros",
+    "kit6m",
+    "decor6m",
+  ],
+  "festa-mesa": [
+    "festanamesa",
+    "festamesa",
+    "pegueemonte",
+    "mesa",
+    "kitfestanamesa",
+  ],
+};
+
+/** Detecta tamanho/kit pedido pelo cliente (inclui typo poket). */
+export function detectKitSize(text: string): KitSizeId | null {
+  const t = normalizeTemaText(text);
+  if (/\b(6\s*m|6\s*metros|decoracao\s*6|festa\s+grande\s+de\s*6)\b/.test(t)) {
+    return "decoracao-6m";
+  }
+  if (/\b(4\s*m|4\s*metros|decoracao\s*4)\b/.test(t)) {
+    return "decoracao-4m";
+  }
+  if (/\b(pocket|poket|pochet)\b/.test(t)) return "pocket";
+  if (/\b(intermedi[aá]ria|intermediario)\b/.test(t)) return "intermediaria";
+  if (
+    /\b(festa\s+m[eé]dia|kit\s+(de\s+)?festa\s+m[eé]dia|tamanho\s+m[eé]di[oa]|m[eé]dia)\b/.test(
+      t
+    )
+  ) {
+    return "media";
+  }
+  if (/\b(festa\s+na\s+mesa|pegue\s*e\s*monte)\b/.test(t)) return "festa-mesa";
+  return null;
+}
+
+/** +2 tamanho certo, 0 neutro, -1 tamanho errado explícito na legenda. */
+export function kitSizeMatchBonus(
+  caption: string,
+  kitSize: KitSizeId | null
+): number {
+  if (!kitSize) return 0;
+  const tags = extractHashtags(caption);
+  const want = KIT_SIZE_HASHTAGS[kitSize] || [];
+  const allSizeTags = Object.values(KIT_SIZE_HASHTAGS).flat();
+
+  const hasWant = tags.some((t) =>
+    want.some((w) => t === w || tagsOverlap(t, w))
+  );
+  if (hasWant) return 2;
+
+  // Tem hashtag de OUTRO tamanho?
+  const hasOther = tags.some((t) => {
+    if (!allSizeTags.some((w) => t === w || tagsOverlap(t, w))) return false;
+    return !want.some((w) => t === w || tagsOverlap(t, w));
+  });
+  if (hasOther) return -1;
+  return 0;
+}
+
 /** Famílias de tema com variações reais de hashtag do Instagram. */
 export const THEME_FAMILIES: ThemeFamily[] = [
   {
@@ -418,11 +521,13 @@ export function tagsOverlap(a: string, b: string): boolean {
 }
 
 /**
- * Score 0–100 da legenda vs tema pedido (hashtags + intenções + gênero/estilo).
+ * Score 0–100 da legenda vs tema pedido (hashtags + intenções + gênero/estilo/tamanho).
+ * opts.queryText: mensagem completa (pra pegar "festa média" + tema).
  */
 export function scoreCaptionForTheme(
   caption: string | null | undefined,
-  tema: string | null
+  tema: string | null,
+  opts?: { queryText?: string | null }
 ): number {
   if (!tema) return 0;
   const raw = String(caption || "");
@@ -443,7 +548,6 @@ export function scoreCaptionForTheme(
       }
     }
 
-    // Gênero: se pediu menino e a tag é *menina* da mesma família → penaliza
     if (q.gender === "menino" && /menina/.test(tag) && q.family) {
       const baseOk = q.family.hashtags.some((h) =>
         tagsOverlap(tag.replace(/menina/g, ""), temaHashtagSlug(h))
@@ -456,7 +560,6 @@ export function scoreCaptionForTheme(
       best = Math.min(best, 40);
     }
 
-    // Boost gênero alinhado
     if (q.gender && tag.includes(q.gender) && q.family) {
       const related = q.family.hashtags.some((h) =>
         tagsOverlap(tag, temaHashtagSlug(h))
@@ -471,10 +574,11 @@ export function scoreCaptionForTheme(
       for (const h of q.family.hashtags) {
         if (tagsOverlap(tag, temaHashtagSlug(h))) {
           let score = tag === temaHashtagSlug(h) ? 96 : 88;
-          // Estilo pedido casa com tag (luxo, elegante…)
           if (
             q.styles.some((st) => tag.includes(temaHashtagSlug(st))) ||
-            q.styles.some((st) => temaHashtagSlug(h).includes(temaHashtagSlug(st)))
+            q.styles.some((st) =>
+              temaHashtagSlug(h).includes(temaHashtagSlug(st))
+            )
           ) {
             score = 100;
           }
@@ -483,7 +587,6 @@ export function scoreCaptionForTheme(
       }
     }
 
-    // Keywords na legenda
     for (const kw of q.family.keywords || []) {
       const nk = normalizeTemaText(kw);
       if (nk.length >= 4 && capNorm.includes(nk)) {
@@ -503,7 +606,7 @@ export function scoreCaptionForTheme(
     best = Math.max(best, 90);
   }
 
-  // 4) Gênero: se pediu menino e só tem tag *menina* (e vice-versa), descarta
+  // 4) Gênero
   if (q.gender && q.family && best >= 85) {
     const other = q.gender === "menino" ? "menina" : "menino";
     const hasRight = tags.some(
@@ -519,6 +622,17 @@ export function scoreCaptionForTheme(
     } else if (hasRight) {
       best = Math.max(best, 100);
     }
+  }
+
+  // 5) Tamanho/kit (#festamedia #pocket #4m…) — boost se bater com o pedido
+  const kitSize = detectKitSize(
+    [opts?.queryText || "", tema].filter(Boolean).join(" ")
+  );
+  if (kitSize && best >= 80) {
+    const bonus = kitSizeMatchBonus(raw, kitSize);
+    if (bonus > 0) best = Math.min(100, best + 8);
+    // tamanho errado explícito: ainda pode servir de tema, mas perde prioridade
+    if (bonus < 0) best = Math.max(80, best - 10);
   }
 
   return best;

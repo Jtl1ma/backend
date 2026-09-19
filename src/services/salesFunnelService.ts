@@ -9,6 +9,8 @@ import {
 } from "../integrations/djDecorClient";
 import {
   NAMED_TEMAS_RE,
+  detectKitSize,
+  kitSizeMatchBonus,
   scoreCaptionForTheme,
 } from "../themeHashtagOntology";
 import { notifyHumanAttendant } from "./attendantService";
@@ -181,12 +183,13 @@ export function wantsVisuals(text: string): boolean {
   );
 }
 
-/** Alias — score com ontologia de hashtags/intenções. */
+/** Alias — score com ontologia de hashtags/intenções/tamanho. */
 function scoreCaptionAgainstTema(
   caption: string | null | undefined,
-  tema: string | null
+  tema: string | null,
+  queryText?: string | null
 ): number {
-  return scoreCaptionForTheme(caption, tema);
+  return scoreCaptionForTheme(caption, tema, { queryText });
 }
 
 function extractTemaHint(text: string, slotsTema?: string | null): string | null {
@@ -492,6 +495,7 @@ function extractPostCloseBundle(created: any): PostCloseBundle | null {
  */
 async function collectVisualReferences(params: {
   temaHint: string | null;
+  queryText?: string | null;
   posts?: Array<{
     caption?: string;
     media_url?: string;
@@ -509,9 +513,16 @@ async function collectVisualReferences(params: {
   let fromCrm = 0;
   let fromIg = 0;
   const tema = params.temaHint;
+  const queryText = params.queryText || tema || "";
+  const kitSize = detectKitSize(queryText);
   const MIN_SCORE = 85;
 
-  console.log("[funil] busca visual tema=", tema || "(nenhum)");
+  console.log(
+    "[funil] busca visual tema=",
+    tema || "(nenhum)",
+    "kit=",
+    kitSize || "(qualquer)"
+  );
 
   if (!tema) {
     return {
@@ -524,12 +535,27 @@ async function collectVisualReferences(params: {
 
   const igPosts = (params.posts || []) as IgPostLike[];
   const igScored = igPosts
-    .map((p) => ({
-      p,
-      score: scoreCaptionAgainstTema(p.caption, tema),
-    }))
+    .map((p) => {
+      const score = scoreCaptionAgainstTema(p.caption, tema, queryText);
+      const kitBonus = kitSizeMatchBonus(String(p.caption || ""), kitSize);
+      return { p, score, kitBonus };
+    })
     .filter((x) => x.score >= MIN_SCORE)
-    .sort((a, b) => b.score - a.score);
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.kitBonus - a.kitBonus
+    );
+
+  // Preferir post com tema+tamanho quando o cliente pediu os dois
+  if (kitSize && igScored.some((x) => x.kitBonus > 0)) {
+    igScored.sort(
+      (a, b) =>
+        (b.kitBonus > 0 ? 1 : 0) - (a.kitBonus > 0 ? 1 : 0) ||
+        b.score - a.score ||
+        b.kitBonus - a.kitBonus
+    );
+  }
 
   // 1) Melhor post do IG: até 3 fotos do carrossel
   if (igScored[0]) {
@@ -553,6 +579,8 @@ async function collectVisualReferences(params: {
     console.log(
       "[funil] IG carrossel urls=",
       urls.length,
+      "kitBonus=",
+      igScored[0].kitBonus,
       "media_type=",
       expanded.media_type
     );
@@ -570,7 +598,11 @@ async function collectVisualReferences(params: {
         if (images.length >= 3) break;
         if (!img.url) continue;
         if (images.some((x) => x.url === img.url)) continue;
-        const score = scoreCaptionAgainstTema(img.tema || img.caption, tema);
+        const score = scoreCaptionAgainstTema(
+          img.tema || img.caption,
+          tema,
+          queryText
+        );
         if (score < MIN_SCORE) continue;
         images.push({
           url: img.url,
@@ -606,6 +638,8 @@ async function collectVisualReferences(params: {
   console.log(
     "[funil] visual resultado tema=",
     tema,
+    "kit=",
+    kitSize || "—",
     "crm=",
     fromCrm,
     "ig=",
@@ -1906,6 +1940,7 @@ async function runSalesFunnelInner(
     );
     const visuals = await collectVisualReferences({
       temaHint,
+      queryText: params.userMessage,
       posts: params.posts,
       contactName: params.contactName,
     });

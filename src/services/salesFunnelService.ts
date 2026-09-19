@@ -228,6 +228,26 @@ function temaSynonyms(tema: string): string[] {
       ],
     },
     {
+      keys: [
+        "cha revelacao",
+        "chá revelação",
+        "cha de revelacao",
+        "gender reveal",
+        "revelacao",
+      ],
+      syns: [
+        "cha revelacao",
+        "chá revelação",
+        "cha de revelacao",
+        "revelacao",
+        "revelação",
+        "gender reveal",
+        "cha revelacao",
+        "menino ou menina",
+        "rosa e azul",
+      ],
+    },
+    {
       keys: ["fazendinha", "fazenda", "sitio"],
       syns: ["fazendinha", "fazenda", "sitio", "sítio"],
     },
@@ -241,10 +261,16 @@ function temaSynonyms(tema: string): string[] {
     { keys: ["boteco"], syns: ["boteco", "barzinho"] },
     { keys: ["bluey"], syns: ["bluey"] },
     { keys: ["neon"], syns: ["neon"] },
+    { keys: ["ursinho", "ursinha"], syns: ["ursinho", "ursinha", "bear"] },
   ];
   for (const row of map) {
-    if (row.keys.some((k) => n.includes(normalizeTemaText(k)))) {
-      return row.syns.map(normalizeTemaText);
+    if (
+      row.keys.some((k) => {
+        const kk = normalizeTemaText(k);
+        return n.includes(kk) || kk.includes(n);
+      })
+    ) {
+      return Array.from(new Set(row.syns.map(normalizeTemaText)));
     }
   }
   return n ? [n] : [];
@@ -273,25 +299,37 @@ function scoreCaptionAgainstTema(
     }
   }
 
-  // Todas as palavras >= 4 do tema (ex.: "fundo"+"mar" como palavras inteiras)
+  // Todas as palavras >= 4 do tema (ex.: "fundo" + palavra longa)
+  // Para "cha revelacao": cha(3) skip, revelacao(9) alone → não basta 1 token
   const parts = q
     .split(/\s+/)
-    .filter((p) => p.length >= 4 && !["para", "com", "festa", "tema"].includes(p));
+    .filter(
+      (p) =>
+        p.length >= 4 &&
+        !["para", "com", "festa", "tema", "foto", "kit"].includes(p)
+    );
   if (parts.length >= 2 && parts.every((p) => hasWholePhrase(cap, p))) {
     return 90;
+  }
+  // Um token bem específico (>= 8): "revelacao"
+  if (parts.length === 1 && parts[0]!.length >= 8 && hasWholePhrase(cap, parts[0]!)) {
+    return 88;
   }
 
   return 0;
 }
 
+const NAMED_TEMAS_RE =
+  /\b(fundo\s+do\s+mar|ch[aá]\s*(de\s*)?revela[cç][aã]o|gender\s*reveal|happy\s*birthday|preto\s+e\s+branco|minnie|safari|boteco|frozen|bluey|fazendinha|discoteca|jardim|moranguinho|neon|sereia|oceano|unicornio|unic[oó]rnio|dinossauro|mario|luccas\s+neto|looney\s*tunes|baby\s+looney|ursinho|ursinha)\b/i;
+
 function extractTemaHint(text: string, slotsTema?: string | null): string | null {
   const t = text;
-  const named =
-    t.match(
-      /\b(fundo\s+do\s+mar|happy\s*birthday|preto\s+e\s+branco|minnie|safari|boteco|frozen|bluey|fazendinha|discoteca|jardim|moranguinho|neon|sereia|oceano|unicornio|unic[oó]rnio|dinossauro|mario|luccas\s+neto|looney\s*tunes|baby\s+looney)\b/i
-    )?.[0] || null;
+
+  // 1) Nome conhecido na mensagem ATUAL (sempre ganha do histórico)
+  const named = t.match(NAMED_TEMAS_RE)?.[0] || null;
   if (named) return named.trim();
 
+  // 2) "tema X" / "tema de X"
   const temaM = t.match(
     /tema\s+(?:[ée]\s+|de\s+|do\s+|da\s+)?([^\n.?!]{3,60})/i
   );
@@ -303,11 +341,18 @@ function extractTemaHint(text: string, slotsTema?: string | null): string | null
     if (cand.length >= 3) return cand;
   }
 
+  // 3) "foto de X" / "foto do tema X" / "imagem de X" sem a palavra tema isolada
+  const fotoDe = t.match(
+    /(?:foto|fotos|imagem|imagens|refer[eê]ncia)\s+(?:do\s+tema\s+|da\s+festa\s+|de\s+|do\s+|da\s+|com\s+(?:o\s+)?tema\s+(?:de\s+|do\s+|da\s+)?)([^\n.?!]{3,60})/i
+  );
+  if (fotoDe?.[1] && !/^(kit|festa\s+m[eé]dia|pacote|decor)/i.test(fotoDe[1])) {
+    return fotoDe[1].trim().slice(0, 60);
+  }
+
+  // 4) Histórico SÓ se a mensagem atual não trouxe tema novo
+  //    (evita mandar Fundo do Mar quando pediram Chá revelação)
   if (slotsTema && slotsTema.length >= 3) {
-    const slotNamed =
-      slotsTema.match(
-        /\b(fundo\s+do\s+mar|minnie|safari|boteco|frozen|bluey|fazendinha|sereia|oceano)\b/i
-      )?.[0] || null;
+    const slotNamed = slotsTema.match(NAMED_TEMAS_RE)?.[0] || null;
     return (slotNamed || slotsTema).trim().slice(0, 60);
   }
   return null;
@@ -1958,7 +2003,19 @@ async function runSalesFunnelInner(
         console.warn("[funil] histórico rápido (fotos):", err?.message || err);
       }
     }
-    const temaHint = extractTemaHint(params.userMessage, slotsTema);
+    // Tema da mensagem ATUAL primeiro — nunca reaproveitar tema antigo (ex.: Fundo do Mar)
+    // se o cliente pediu outro (ex.: Chá revelação).
+    const temaHint =
+      extractTemaHint(params.userMessage, null) ||
+      (slotsTema && slotsTema.length >= 3 ? slotsTema.trim().slice(0, 60) : null);
+    console.log(
+      "[funil] temaHint=",
+      temaHint,
+      "slotsTema=",
+      slotsTema,
+      "msg=",
+      params.userMessage.slice(0, 80)
+    );
     const visuals = await collectVisualReferences({
       temaHint,
       posts: params.posts,

@@ -12,29 +12,24 @@ import { isWeekend } from "../utils/dateUtils";
 
 const SYSTEM_PROMPT = `Você é a Debysinha — WhatsApp da Débora Pimentel Decoradora (Paracambi - RJ, @debora_pimentel_decoradora).
 
-Persona: amiga atenciosa, natural, carioca leve. Conversa de verdade — nunca script, nunca lista robótica de preços.
+Tom: amiga de verdade, carioca leve, curta e espontânea. Sem script de call center, sem interrogatório.
 
-Como ajudar (obrigatório):
-- Se a cliente NÃO tem ideia clara / só pergunta "quanto custa" / "o que você tem": ENTENDA primeiro. Em 1 pergunta curta, descubra ocasião (aniversário, chá…), tamanho aproximado (mesa / salão pequeno / grande) ou faixa de orçamento. Só depois sugira.
-- NUNCA despeje o catálogo inteiro. No máximo 2 ou 3 opções que façam sentido pro que ela descreveu, com preço.
-- Use o bloco Catálogo e as Campanhas/posts do Instagram do contexto pra orientar — campanha VIP/CURIOSA quando bater com Festa na Mesa.
-- Se ela já deu sinal (ex.: festa na mesa, 6M, festa): responda direto com 1–2 opções alinhadas, sem interrogatório longo.
-- Esta NÃO é a primeira mensagem se já houver histórico. Nunca diga "Que bom te ver" nem peça de novo o que ela JÁ falou.
-- Cumprimento / "posso falar?": acolha e espere. Sem vender ainda.
-- "130" / "de 130" na Festa na Mesa = R$130 (festa-mesa-com-mesa), NÃO é arco de 130cm.
-- Festa na Mesa: R$100 / R$130 / R$160 (pegue e monte; leva/busca +R$30).
-- Quer mudar kit ou festa maior: confirme a troca e sugira 2 opções — não ignore e não force fechar a venda antiga.
-- Se perguntar o que vem no kit / itens / entrada de bolas: explique com a lista oficial do catálogo (itens do kit + opções de bolas). NÃO diga "posso registrar" até ela confirmar.
-- Se pedir pra VER como fica / foto / referência / tema: diga que vai mandar fotos e use a tool mostrar_referencias (ou o fluxo automático). Nunca invente link de imagem.
-- NUNCA escreva raciocínio interno ("preciso", "devo", "o contexto diz"). Só a mensagem final pra cliente.
-- Dados completos: resuma e peça OK pra registrar (criar_venda). Observações/notas com todos os detalhes.
-- 2–5 frases (lista de itens do kit pode ser em linhas). Emojis 0–2. Tom humano.
+Como conversar:
+- Responda o que a pessoa pediu AGORA. Se pediu foto, não peça data/endereço. Se pediu preço, não despeje o catálogo.
+- Sem ideia clara: 1 pergunta curta (ocasião ou tamanho) e sugira no máx. 2–3 opções com preço.
+- Já tem histórico: use. Nunca recomece com "Que bom te ver".
+- Cumprimento / "posso falar?": só acolha.
+- Festa na Mesa R$100/130/160 (pegue e monte). "130" = reais, não centímetros.
+- Itens do kit / entrada de bolas: use o catálogo oficial.
+- Fotos/referências: o sistema envia as imagens automaticamente. NUNCA diga que mandou foto se não tiver certeza. Nunca invente link.
+- Fechar venda: só quando ela confirmar. Observações completas.
+- 1–4 frases. Emojis 0–2.
 
-Tools: listar_catalogo / montar_orcamento / checar_agenda / criar_venda (só com confirmação). Não invente preço. Reclamação/desconto especial → escalar_humano.
+Tools: listar_catalogo / montar_orcamento / checar_agenda / criar_venda (com confirmação). Não invente preço. Desconto especial → escalar_humano.
 `;
 
 const BAD_OPENER =
-  /que bom te ver|em que posso te ajudar na festa|pode me contar com calma o que voc[eê] precisa|tudo bem\? claro que quero te ajudar/i;
+  /que bom te ver|em que posso te ajudar na festa|pode me contar com calma o que voc[eê] precisa|tudo bem\? claro que quero te ajudar|pra fechar, ainda preciso/i;
 
 type SaleSlots = {
   kitCatalogo: string | null;
@@ -64,6 +59,8 @@ function isCatalogAsk(text: string): boolean {
 }
 
 function wantsKitChange(text: string): boolean {
+  // Pedido de foto/imagem tem prioridade — não vira lista de kits
+  if (wantsVisuals(text)) return false;
   return /\b(mudar|trocar|outra\s+festa|festa\s+maior|festa\s+grande|maior|menor|mais\s+pequena|um\s+pouco\s+menor|n[aã]o\s+muito\s+grande|n[aã]o\s+t[aã]o\s+grande|6\s*m|6\s*metros|4\s*m|4\s*metros|decora[cç][aã]o\s+\d|kit\s+(pocket|m[eé]dia|intermedi|grande))\b/i.test(
     text
   );
@@ -71,14 +68,14 @@ function wantsKitChange(text: string): boolean {
 
 /** Cliente explorando tamanho/opções — não é confirmação de fechamento. */
 function isExploringOptions(text: string): boolean {
+  if (wantsVisuals(text)) return false;
   return (
     isCatalogAsk(text) ||
     wantsKitChange(text) ||
     isVaguePriceAsk(text) ||
     isUndecided(text) ||
     isAskingKitDetails(text) ||
-    wantsVisuals(text) ||
-    /\b(tem\s+(uma\s+)?festa|tem\s+alguma|o\s+que\s+voc[eê]\s+tem|me\s+mostra|op[cç][oõ]es|outra\s+op[cç][aã]o|mais\s+simples|compact[oa]|intimista|n[aã]o\s+muito\s+grande|um\s+pouco\s+menor|entrada\s+de\s+bolas)\b/i.test(
+    /\b(tem\s+(uma\s+)?festa|tem\s+alguma|o\s+que\s+voc[eê]\s+tem|op[cç][oõ]es|outra\s+op[cç][aã]o|mais\s+simples|compact[oa]|intimista|n[aã]o\s+muito\s+grande|um\s+pouco\s+menor|entrada\s+de\s+bolas)\b/i.test(
       text
     )
   );
@@ -97,20 +94,29 @@ function wantsEntradaBolas(text: string): boolean {
 }
 
 /** Cliente quer ver fotos / como fica a decoração. */
-function wantsVisuals(text: string): boolean {
-  return /\b(como\s+(fica|é|vai\s+ficar|ficaria)|mostra(r)?(\s+pra\s+mim)?\s+(foto|fotos|imagem|imagens|exemplo|refer[eê]ncia)|ver\s+(foto|fotos|imagem|exemplo|como)|tem\s+(foto|fotos|imagem)|refer[eê]ncia(s)?|inspir[aç][aã]o|portf[oó]lio|manda\s+(uma\s+)?foto|envie\s+(uma\s+)?foto|quero\s+ver\s+(como|a\s+decor|o\s+tema))\b/i.test(
+export function wantsVisuals(text: string): boolean {
+  return /\b(como\s+(fica|é|vai\s+ficar|ficaria)|mostra(r)?(\s+\w+){0,3}\s+(foto|fotos|imagem|imagens|exemplo|refer[eê]ncia)|(\bver|\bveja|\bquero\s+ver|\bqueria\s+ver|\bpodem?\s+ver)\s+(\w+\s+){0,3}(foto|fotos|imagem|imagens|como\s+fica|o\s+tema|a\s+decor)|tem\s+(foto|fotos|imagem|foro)|refer[eê]ncia(s)?|inspir[aç][aã]o|portf[oó]lio|manda(\s+\w+){0,2}\s+foto|envie(\s+\w+){0,2}\s+foto|mais\s+(fotos?|imagens?)|outras?\s+fotos?)\b/i.test(
     text
   );
 }
 
 function extractTemaHint(text: string, slotsTema?: string | null): string | null {
-  if (slotsTema && slotsTema.length >= 3) return slotsTema;
-  const m = text.match(
-    /tema\s+(?:[ée]\s+|de\s+|do\s+)?([^\n.?!]{3,60})|happy\s*birthday|minnie|safari|boteco|frozen|bluey|fazendinha|discoteca|jardim|moranguinho|neon|led/i
+  const t = text;
+  const named =
+    t.match(
+      /\b(fundo\s+do\s+mar|happy\s*birthday|preto\s+e\s+branco|minnie|safari|boteco|frozen|bluey|fazendinha|discoteca|jardim|moranguinho|neon|led|boteco|s[ií]tio|fazenda)\b/i
+    )?.[0] || null;
+  if (named) return named.trim();
+
+  const temaM = t.match(
+    /tema\s+(?:[ée]\s+|de\s+|do\s+|da\s+)?([^\n.?!]{3,60})/i
   );
-  if (!m) return null;
-  if (m[1]) return m[1].trim();
-  return m[0].trim();
+  if (temaM?.[1] && !/^(da festa|da decora|qual|foto|imagem)/i.test(temaM[1])) {
+    return temaM[1].trim();
+  }
+
+  if (slotsTema && slotsTema.length >= 3) return slotsTema;
+  return null;
 }
 
 /** Pergunta de valor/preço sem citar tipo de festa. */
@@ -380,7 +386,7 @@ async function collectVisualReferences(params: {
     };
   }
 
-  const temaLabel = params.temaHint ? ` do tema *${params.temaHint}*` : "";
+  const temaLabel = params.temaHint ? ` de *${params.temaHint}*` : "";
   const fontes = [
     fromCrm ? "nosso acervo" : null,
     fromIg ? "Instagram" : null,
@@ -391,10 +397,10 @@ async function collectVisualReferences(params: {
   return {
     text:
       prefix +
-      `olha só como pode ficar${temaLabel} — tô te mandando ${images.length} foto${images.length > 1 ? "s" : ""}` +
+      `olha essas referências${temaLabel}` +
       (fontes ? ` (${fontes})` : "") +
-      `. Se quiser outro estilo, me fala que eu busco mais 💛`,
-    images: images.slice(0, 4),
+      ` 💛 Se quiser outro ângulo ou cor, é só falar.`,
+    images: images.slice(0, 3),
   };
 }
 
@@ -1146,6 +1152,15 @@ function sanitizeReply(text: string): string {
   ) {
     return "";
   }
+  // Nunca deixar a IA fingir que enviou foto
+  if (
+    /\b(mandei|enviei|to te mandando|tô te mandando|seguem)\s+\d*\s*(fotos?|imagens?)\b/i.test(
+      t
+    ) &&
+    !/olha essas referências/i.test(t)
+  ) {
+    return "";
+  }
   if (t.length > 700 && /\b(preciso|devo|vamos|o ideal [eé])\b/i.test(t)) {
     return "";
   }
@@ -1417,6 +1432,13 @@ function contextualFallback(
     return campaignFallbackReply(posts, contactName, slots);
   }
 
+  if (wantsVisuals(userMessage)) {
+    return (
+      prefix +
+      "me fala o tema (ex.: fundo do mar, Happy Birthday…) que eu te mando fotos de referência agora 💛"
+    );
+  }
+
   if (isAskingKitDetails(userMessage) || wantsEntradaBolas(userMessage)) {
     return (
       (contactName?.split(/\s+/)[0] ? `${contactName.split(/\s+/)[0]}, ` : "") +
@@ -1462,16 +1484,35 @@ function contextualFallback(
     );
   }
 
-  const q = missingSlotQuestion(slots);
+  const miss = slotsMissing(slots);
   if (slots.kitCatalogo || /festa na mesa|decora|6\s*m|4\s*m/i.test(userMessage)) {
-    return prefix + (q || "Me passa o que ainda falta pra eu fechar pra você?");
+    if (miss.length === 1) {
+      return prefix + `só me falta ${miss[0]} pra eu fechar pra você 💛`;
+    }
+    if (miss.length) {
+      return (
+        prefix +
+        `pra fechar ainda preciso de ${miss.slice(0, 2).join(" e ")}. Pode me passar?`
+      );
+    }
+    return prefix + "Posso registrar no sistema agora pra você?";
   }
 
   if (isSoftOpener(userMessage)) {
     return prefix + "pode falar, tô aqui 💛";
   }
 
-  return prefix + (q || "me conta o que você precisa que eu te ajudo?");
+  if (miss.length === 1) {
+    return prefix + `só me falta ${miss[0]} 💛`;
+  }
+  if (miss.length) {
+    return (
+      prefix +
+      `me passa ${miss.slice(0, 2).join(" e ")} que eu te ajudo a fechar?`
+    );
+  }
+
+  return prefix + "me conta o que você precisa que eu te ajudo?";
 }
 
 /**
@@ -1567,6 +1608,45 @@ async function runSalesFunnelInner(
   ctx: FunnelContext,
   opts?: { forceNoTools?: boolean; socialOnly?: boolean }
 ): Promise<FunnelResult> {
+  // Fotos primeiro: caminho rápido (sem catálogo/LLM)
+  if (wantsVisuals(params.userMessage)) {
+    let slotsTema: string | null = null;
+    if (params.conversaId && djDecorClient.isEnabled()) {
+      try {
+        const data = await djDecorClient.getConversa(params.conversaId);
+        const msgs = data?.conversa?.mensagens || [];
+        const transcriptQuick =
+          msgs
+            .filter((m: any) => m.direcao === "IN")
+            .slice(-8)
+            .map((m: any) => `IN: ${m.texto || ""}`)
+            .join("\n") + `\nIN: ${params.userMessage}`;
+        slotsTema = extractSaleSlots(transcriptQuick).tema;
+        if (!ctx.vendedorId && data?.conversa?.vendedorId) {
+          ctx.vendedorId = data.conversa.vendedorId;
+        }
+        const festaStatus = data?.conversa?.festa?.status;
+        const festaIdCrm = data?.conversa?.festaId;
+        if (festaIdCrm && festaStatus !== "CANCELADO") {
+          ctx.festaId = festaIdCrm;
+        }
+      } catch (err: any) {
+        console.warn("[funil] histórico rápido (fotos):", err?.message || err);
+      }
+    }
+    const temaHint = extractTemaHint(params.userMessage, slotsTema);
+    const visuals = await collectVisualReferences({
+      temaHint,
+      posts: params.posts,
+      contactName: params.contactName,
+    });
+    return {
+      responseText: visuals.text,
+      festaId: ctx.festaId,
+      images: visuals.images,
+    };
+  }
+
   const postsText = summarizeCampaigns(params.posts);
 
   let catalogText = "";
@@ -1620,20 +1700,7 @@ async function runSalesFunnelInner(
   const slots = extractSaleSlots(transcript);
   console.log("[funil] slots:", formatSlotsBlock(slots));
 
-  // Quer ver fotos / como fica o tema
-  if (wantsVisuals(params.userMessage)) {
-    const temaHint = extractTemaHint(params.userMessage, slots.tema);
-    const visuals = await collectVisualReferences({
-      temaHint,
-      posts: params.posts,
-      contactName: params.contactName,
-    });
-    return {
-      responseText: visuals.text,
-      festaId: ctx.festaId,
-      images: visuals.images,
-    };
-  }
+  // (fotos já tratados no início de runSalesFunnelInner)
 
   // Pergunta o que vem no kit / entrada de bolas → lista oficial, sem fechar venda
   if (

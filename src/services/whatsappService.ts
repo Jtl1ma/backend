@@ -4,7 +4,7 @@ import { analyzeSentiment } from "./sentimentService";
 import { notifyHumanAttendant } from "./attendantService";
 import { isWeekend } from "../utils/dateUtils";
 import { djDecorClient } from "../integrations/djDecorClient";
-import { runSalesFunnel } from "./salesFunnelService";
+import { runSalesFunnel, wantsVisuals } from "./salesFunnelService";
 import config from "../config";
 
 /**
@@ -198,7 +198,9 @@ async function processIncomingMessageInner(message: WhatsAppMessage) {
     return { responseText: null, sentiment: "neutral", skippedAi: true };
   }
 
-  const sentiment = await analyzeSentiment(text);
+  const sentiment = wantsVisuals(text)
+    ? "neutral"
+    : await analyzeSentiment(text);
 
   try {
     const db = getDatabase();
@@ -211,7 +213,29 @@ async function processIncomingMessageInner(message: WhatsAppMessage) {
   }
 
   const weekend = isWeekend();
-  const posts = await fetchInstagramPosts();
+
+  // Instagram em paralelo / cache — não trava a resposta
+  const postsPromise = fetchInstagramPosts();
+  const sentimentPromise = Promise.resolve(sentiment);
+
+  let posts: Awaited<ReturnType<typeof fetchInstagramPosts>> = [];
+  if (wantsVisuals(text)) {
+    // Foto: precisa do IG, mas com timeout curto
+    posts = await Promise.race([
+      postsPromise,
+      new Promise<typeof posts>((resolve) =>
+        setTimeout(() => resolve(igPostsCache?.posts || []), 2500)
+      ),
+    ]);
+  } else {
+    posts = await Promise.race([
+      postsPromise,
+      new Promise<typeof posts>((resolve) =>
+        setTimeout(() => resolve(igPostsCache?.posts || []), 600)
+      ),
+    ]);
+  }
+  void sentimentPromise;
 
   let responseText: string;
   let festaId: string | null | undefined = crm?.festaId ?? null;
@@ -238,10 +262,13 @@ async function processIncomingMessageInner(message: WhatsAppMessage) {
       : "Oi! Recebi sua mensagem 💛 Em que posso te ajudar?";
   }
 
-  // Fotos primeiro (referência visual), texto depois
-  for (const img of images.slice(0, 4)) {
+  // Fotos primeiro (caption só na 1ª pra agilizar), texto depois
+  let imagesSent = 0;
+  for (let i = 0; i < images.slice(0, 3).length; i++) {
+    const img = images[i]!;
     try {
-      await sendImage(from, img.url, img.caption);
+      await sendImage(from, img.url, i === 0 ? img.caption : undefined);
+      imagesSent++;
       await djDecorClient.syncOutbound({
         waId: from,
         texto: img.caption
@@ -256,6 +283,14 @@ async function processIncomingMessageInner(message: WhatsAppMessage) {
         err?.response?.data || err?.message || err
       );
     }
+  }
+
+  if (images.length && imagesSent === 0) {
+    responseText =
+      (message.contactName?.split(" ")[0]
+        ? `${message.contactName.split(" ")[0]}, `
+        : "") +
+      "tentei te mandar as fotos agora mas deu uma falha técnica 💛 Me pede de novo em instantes, ou me diga o tema que eu tento outra referência.";
   }
 
   await sendAndMirrorToCrm({
@@ -391,6 +426,18 @@ export async function sendInteractiveMessage(
   });
 }
 
+let igPostsCache: {
+  at: number;
+  posts: Array<{
+    id?: string;
+    caption?: string;
+    media_url?: string;
+    permalink?: string;
+    media_type?: string;
+    thumbnail_url?: string;
+  }>;
+} | null = null;
+
 export async function fetchInstagramPosts(): Promise<
   Array<{
     id?: string;
@@ -398,8 +445,13 @@ export async function fetchInstagramPosts(): Promise<
     media_url?: string;
     permalink?: string;
     media_type?: string;
+    thumbnail_url?: string;
   }>
 > {
+  if (igPostsCache && Date.now() - igPostsCache.at < 5 * 60 * 1000) {
+    return igPostsCache.posts;
+  }
+
   const maxRetries = 2;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -410,8 +462,10 @@ export async function fetchInstagramPosts(): Promise<
         limit: 12,
       };
 
-      const response = await axios.get(url, { params });
-      return response.data?.data || [];
+      const response = await axios.get(url, { params, timeout: 4000 });
+      const posts = response.data?.data || [];
+      igPostsCache = { at: Date.now(), posts };
+      return posts;
     } catch (error: any) {
       const isInvalidToken = error?.response?.data?.error?.message?.includes(
         "Invalid OAuth access token"
@@ -429,14 +483,14 @@ export async function fetchInstagramPosts(): Promise<
       }
       if (attempt === maxRetries) {
         console.error(
-          "[Instagram] Todas as tentativas falharam. Retornando lista vazia."
+          "[Instagram] Todas as tentativas falharam. Retornando cache/lista vazia."
         );
-        return [];
+        return igPostsCache?.posts || [];
       }
-      await new Promise((r) => setTimeout(r, 1000 * attempt));
+      await new Promise((r) => setTimeout(r, 400 * attempt));
     }
   }
-  return [];
+  return igPostsCache?.posts || [];
 }
 
 async function createTicket(waId: string, message: string) {

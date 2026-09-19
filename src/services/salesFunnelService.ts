@@ -106,74 +106,113 @@ function normalizeTemaText(s: string): string {
     .normalize("NFD")
     .replace(/\p{M}/gu, "")
     .toLowerCase()
+    .replace(/[#_]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-/** Sinônimos para achar o tema no Instagram/CRM mesmo com caption diferente. */
-function temaSearchTerms(tema: string | null): string[] {
-  if (!tema) return [];
-  const n = normalizeTemaText(tema);
-  const base = [n, ...n.split(/\s+/).filter((t) => t.length >= 3)];
-  const syn: Record<string, string[]> = {
-    "fundo do mar": [
-      "fundo do mar",
-      "sereia",
-      "oceano",
-      "peixinho",
-      "peixe",
-      "nemo",
-      "aquario",
-      "bolhas",
-      "marinho",
-      "under the sea",
-    ],
-    safari: ["safari", "selva", "jungle", "leao", "giraffe"],
-    minnie: ["minnie", "mickey", "disney"],
-    frozen: ["frozen", "elsa", "olaf", "frozen"],
-    boteco: ["boteco", "barzinho", "boteco"],
-    fazendinha: ["fazendinha", "fazenda", "sitio", "sítio"],
-    bluey: ["bluey"],
-    neon: ["neon", "balada", "glow"],
-  };
-  for (const [key, words] of Object.entries(syn)) {
-    if (n.includes(key) || key.includes(n)) {
-      return Array.from(new Set([...base, ...words.map(normalizeTemaText)]));
-    }
-  }
-  return Array.from(new Set(base));
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Palavra/frase inteira — NÃO aceita "mar" dentro de "marrom". */
+function hasWholePhrase(haystack: string, needle: string): boolean {
+  const n = normalizeTemaText(needle);
+  if (!n || n.length < 3) return false;
+  const h = normalizeTemaText(haystack);
+  if (n.includes(" ")) {
+    return h.includes(n);
+  }
+  return new RegExp(`(?:^|[^a-z0-9])${escapeRe(n)}(?:[^a-z0-9]|$)`, "i").test(
+    h
+  );
+}
+
+/**
+ * Sinônimos fortes por tema (só termos que sozinhos identificam o tema).
+ * NÃO inclui pedaços curtos tipo "mar" / "fundo".
+ */
+function temaSynonyms(tema: string): string[] {
+  const n = normalizeTemaText(tema);
+  const map: Array<{ keys: string[]; syns: string[] }> = [
+    {
+      keys: ["fundo do mar", "sereia", "under the sea"],
+      syns: [
+        "fundo do mar",
+        "fundodomar",
+        "sereia",
+        "oceano",
+        "peixinho",
+        "nemo",
+        "aquario",
+        "aquário",
+        "marinho",
+        "under the sea",
+        "sereismo",
+      ],
+    },
+    {
+      keys: ["fazendinha", "fazenda", "sitio"],
+      syns: ["fazendinha", "fazenda", "sitio", "sítio"],
+    },
+    {
+      keys: ["looney", "baby looney"],
+      syns: ["looney", "looney tunes", "baby looney"],
+    },
+    { keys: ["safari", "selva"], syns: ["safari", "selva", "jungle"] },
+    { keys: ["minnie", "mickey"], syns: ["minnie", "mickey"] },
+    { keys: ["frozen", "elsa"], syns: ["frozen", "elsa", "olaf"] },
+    { keys: ["boteco"], syns: ["boteco", "barzinho"] },
+    { keys: ["bluey"], syns: ["bluey"] },
+    { keys: ["neon"], syns: ["neon"] },
+  ];
+  for (const row of map) {
+    if (row.keys.some((k) => n.includes(normalizeTemaText(k)))) {
+      return row.syns.map(normalizeTemaText);
+    }
+  }
+  return n ? [n] : [];
+}
+
+/**
+ * Score 0–100 só com evidência forte na legenda/tema.
+ * Exige frase do tema, sinônimo forte, ou TODAS as palavras significativas.
+ */
 function scoreCaptionAgainstTema(
   caption: string | null | undefined,
   tema: string | null
 ): number {
-  if (!tema) return 10;
+  if (!tema) return 0;
   const cap = normalizeTemaText(caption || "");
   if (!cap) return 0;
-  const terms = temaSearchTerms(tema);
-  let best = 0;
-  for (const term of terms) {
-    if (term.length < 3) continue;
-    if (cap.includes(term)) {
-      best = Math.max(best, term.includes(" ") ? 100 : 70);
-    } else {
-      // palavra inteira
-      const re = new RegExp(
-        `(?:^|[^a-z0-9])${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^a-z0-9]|$)`,
-        "i"
-      );
-      if (re.test(cap)) best = Math.max(best, 60);
+  const q = normalizeTemaText(tema);
+
+  if (hasWholePhrase(cap, q) || cap.replace(/\s/g, "").includes(q.replace(/\s/g, ""))) {
+    return 100;
+  }
+
+  for (const syn of temaSynonyms(q)) {
+    if (syn.length >= 4 && hasWholePhrase(cap, syn)) {
+      return syn.includes(" ") || syn.length >= 6 ? 95 : 85;
     }
   }
-  return best;
+
+  // Todas as palavras >= 4 do tema (ex.: "fundo"+"mar" como palavras inteiras)
+  const parts = q
+    .split(/\s+/)
+    .filter((p) => p.length >= 4 && !["para", "com", "festa", "tema"].includes(p));
+  if (parts.length >= 2 && parts.every((p) => hasWholePhrase(cap, p))) {
+    return 90;
+  }
+
+  return 0;
 }
 
 function extractTemaHint(text: string, slotsTema?: string | null): string | null {
   const t = text;
   const named =
     t.match(
-      /\b(fundo\s+do\s+mar|happy\s*birthday|preto\s+e\s+branco|minnie|safari|boteco|frozen|bluey|fazendinha|discoteca|jardim|moranguinho|neon|sereia|oceano|unicornio|unic[oó]rnio|dinossauro|mario|luccas\s+neto)\b/i
+      /\b(fundo\s+do\s+mar|happy\s*birthday|preto\s+e\s+branco|minnie|safari|boteco|frozen|bluey|fazendinha|discoteca|jardim|moranguinho|neon|sereia|oceano|unicornio|unic[oó]rnio|dinossauro|mario|luccas\s+neto|looney\s*tunes|baby\s+looney)\b/i
     )?.[0] || null;
   if (named) return named.trim();
 
@@ -181,10 +220,20 @@ function extractTemaHint(text: string, slotsTema?: string | null): string | null
     /tema\s+(?:[ée]\s+|de\s+|do\s+|da\s+)?([^\n.?!]{3,60})/i
   );
   if (temaM?.[1] && !/^(da festa|da decora|qual|foto|imagem|kit)/i.test(temaM[1])) {
-    return temaM[1].replace(/\s+com\s+o\s+tema.*$/i, "").trim() || temaM[1].trim();
+    let cand = temaM[1].trim();
+    cand = cand
+      .replace(/\s+(com|pra|para|e|no|na)\s+(kit|festa|pacote).*$/i, "")
+      .trim();
+    if (cand.length >= 3) return cand;
   }
 
-  if (slotsTema && slotsTema.length >= 3) return slotsTema;
+  if (slotsTema && slotsTema.length >= 3) {
+    const slotNamed =
+      slotsTema.match(
+        /\b(fundo\s+do\s+mar|minnie|safari|boteco|frozen|bluey|fazendinha|sereia|oceano)\b/i
+      )?.[0] || null;
+    return (slotNamed || slotsTema).trim().slice(0, 60);
+  }
   return null;
 }
 
@@ -429,7 +478,7 @@ function extractPostCloseBundle(created: any): PostCloseBundle | null {
   return { portalUrl, pdfUrl, textSuffix, documents };
 }
 
-/** Junta fotos do CRM (por tema) + Instagram (media_url) — só temas que batem. */
+/** Junta fotos do CRM (por tema) + Instagram (legendas) — só match forte. */
 async function collectVisualReferences(params: {
   temaHint: string | null;
   posts?: Array<{
@@ -447,22 +496,32 @@ async function collectVisualReferences(params: {
   let fromCrm = 0;
   let fromIg = 0;
   const tema = params.temaHint;
+  const MIN_SCORE = 85;
+
+  console.log("[funil] busca visual tema=", tema || "(nenhum)");
+
+  // Sem tema explícito: não manda portfolio aleatório
+  if (!tema) {
+    return {
+      text:
+        prefix +
+        "me fala o *tema* (ex.: Fundo do Mar, Fazendinha, Minnie…) que eu busco no acervo e nas legendas do Instagram 💛",
+      images: [],
+    };
+  }
 
   if (djDecorClient.isEnabled()) {
     try {
       const refs = await djDecorClient.buscarReferencias({
-        tema: tema || undefined,
-        limite: 3,
+        tema,
+        limite: 4,
       });
-      // Se o CRM marcou fallback (tema errado), ignora — Instagram cobre
       const crmImgs = refs.fallback ? [] : refs.imagens || [];
       for (const img of crmImgs) {
         if (!img.url) continue;
-        if (
-          tema &&
-          img.tema &&
-          scoreCaptionAgainstTema(img.tema, tema) < 40
-        ) {
+        const score = scoreCaptionAgainstTema(img.tema || img.caption, tema);
+        if (score < MIN_SCORE) {
+          console.log("[funil] CRM discard", img.tema, "score=", score);
           continue;
         }
         images.push({
@@ -474,9 +533,7 @@ async function collectVisualReferences(params: {
         fromCrm++;
       }
       if (refs.fallback) {
-        console.warn(
-          "[funil] CRM retornou fallback de tema; ignorando fotos fora do tema"
-        );
+        console.warn("[funil] CRM fallback ignorado (evita tema errado)");
       }
     } catch (err: any) {
       console.warn("[funil] refs CRM:", err?.message || err);
@@ -496,8 +553,7 @@ async function collectVisualReferences(params: {
         score: scoreCaptionAgainstTema(p.caption, tema),
       };
     })
-    .filter((x) => Boolean(x.url))
-    .filter((x) => (tema ? x.score >= 50 : true))
+    .filter((x) => Boolean(x.url) && x.score >= MIN_SCORE)
     .sort((a, b) => b.score - a.score);
 
   for (const item of igScored) {
@@ -512,18 +568,29 @@ async function collectVisualReferences(params: {
     fromIg++;
   }
 
+  console.log(
+    "[funil] visual resultado tema=",
+    tema,
+    "crm=",
+    fromCrm,
+    "ig=",
+    fromIg,
+    "igPosts=",
+    igPosts.length,
+    "igMatch=",
+    igScored.length
+  );
+
   if (!images.length) {
     return {
       text:
         prefix +
-        (tema
-          ? `ainda não achei foto pronta do tema *${tema}* no acervo nem no Instagram agora. Me manda uma referência que você gosta (ou outro nome pro tema) que eu te ajudo 💛`
-          : "me fala o *tema* (ex.: Fundo do Mar, Happy Birthday, Minnie…) que eu busco no nosso acervo e no Instagram 💛"),
+        `procurei *${tema}* no nosso acervo e nas legendas do Instagram e ainda não achei foto com esse tema na legenda 💛 ` +
+        `Se tiver um print ou outro nome (ex.: sereia / oceano), me manda que eu busco de novo.`,
       images: [],
     };
   }
 
-  const temaLabel = tema ? ` de *${tema}*` : "";
   const fontes = [
     fromCrm ? "nosso acervo" : null,
     fromIg ? "Instagram" : null,
@@ -534,9 +601,9 @@ async function collectVisualReferences(params: {
   return {
     text:
       prefix +
-      `olha essas referências${temaLabel}` +
+      `olha essas referências de *${tema}*` +
       (fontes ? ` (${fontes})` : "") +
-      ` 💛 Se quiser outro ângulo ou cor, é só falar.`,
+      ` 💛 Se quiser outro ângulo, é só falar.`,
     images: images.slice(0, 3),
   };
 }

@@ -214,17 +214,20 @@ async function processIncomingMessageInner(message: WhatsAppMessage) {
 
   const weekend = isWeekend();
 
-  // Instagram em paralelo / cache — não trava a resposta
-  const postsPromise = fetchInstagramPosts();
+  // Instagram em paralelo / cache — em pedido de foto busca mais páginas (legendas)
+  const needsVisuals =
+    wantsVisuals(text) || /\b(foto|imagem|refer[eê]ncia|tema)\b/i.test(text);
+  const postsPromise = needsVisuals
+    ? fetchInstagramPostsDeep(150)
+    : fetchInstagramPosts();
   const sentimentPromise = Promise.resolve(sentiment);
 
   let posts: Awaited<ReturnType<typeof fetchInstagramPosts>> = [];
-  if (wantsVisuals(text) || /\b(foto|imagem|refer[eê]ncia)\b/i.test(text)) {
-    // Foto: precisa do IG, mas com timeout curto
+  if (needsVisuals) {
     posts = await Promise.race([
       postsPromise,
       new Promise<typeof posts>((resolve) =>
-        setTimeout(() => resolve(igPostsCache?.posts || []), 5000)
+        setTimeout(() => resolve(igPostsCache?.posts || []), 12000)
       ),
     ]);
   } else {
@@ -514,49 +517,87 @@ export async function fetchInstagramPosts(): Promise<
     thumbnail_url?: string;
   }>
 > {
-  if (igPostsCache && Date.now() - igPostsCache.at < 5 * 60 * 1000) {
+  return fetchInstagramPostsDeep(50);
+}
+
+/**
+ * Busca mais posts (paginado) pra achar tema nas legendas.
+ * Cacheia o pacote maior por 5 min.
+ */
+export async function fetchInstagramPostsDeep(
+  maxPosts = 120
+): Promise<
+  Array<{
+    id?: string;
+    caption?: string;
+    media_url?: string;
+    permalink?: string;
+    media_type?: string;
+    thumbnail_url?: string;
+  }>
+> {
+  if (
+    igPostsCache &&
+    Date.now() - igPostsCache.at < 5 * 60 * 1000 &&
+    igPostsCache.posts.length >= Math.min(maxPosts, 40)
+  ) {
     return igPostsCache.posts;
   }
 
-  const maxRetries = 2;
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const url = `https://graph.facebook.com/v26.0/${config.instagram.businessId}/media`;
-      const params = {
-        fields: "id,caption,media_url,permalink,media_type,thumbnail_url",
-        access_token: config.instagram.accessToken,
-        limit: 50,
-      };
-
-      const response = await axios.get(url, { params, timeout: 8000 });
-      const posts = response.data?.data || [];
-      igPostsCache = { at: Date.now(), posts };
-      return posts;
-    } catch (error: any) {
-      const isInvalidToken = error?.response?.data?.error?.message?.includes(
-        "Invalid OAuth access token"
-      );
-      if (isInvalidToken) {
-        console.error(
-          "[Instagram] Token inválido. Verifique o access token no config:",
-          error.response?.data?.error?.message
-        );
-      } else {
-        console.warn(
-          `[Instagram] Tentativa ${attempt}/${maxRetries} falhou:`,
-          error?.message || error
-        );
-      }
-      if (attempt === maxRetries) {
-        console.error(
-          "[Instagram] Todas as tentativas falharam. Retornando cache/lista vazia."
-        );
-        return igPostsCache?.posts || [];
-      }
-      await new Promise((r) => setTimeout(r, 400 * attempt));
-    }
+  const businessId = config.instagram.businessId;
+  const accessToken = config.instagram.accessToken;
+  if (!businessId || !accessToken) {
+    console.warn("[Instagram] businessId/token ausente");
+    return igPostsCache?.posts || [];
   }
-  return igPostsCache?.posts || [];
+
+  try {
+    const posts: Array<{
+      id?: string;
+      caption?: string;
+      media_url?: string;
+      permalink?: string;
+      media_type?: string;
+      thumbnail_url?: string;
+    }> = [];
+    let url: string | null =
+      `https://graph.facebook.com/v26.0/${businessId}/media`;
+    let params: Record<string, string | number> | null = {
+      fields: "id,caption,media_url,permalink,media_type,thumbnail_url",
+      access_token: accessToken,
+      limit: 50,
+    };
+
+    while (url && posts.length < maxPosts) {
+      const response = await axios.get(url, {
+        params: params || undefined,
+        timeout: 10000,
+      });
+      const batch = response.data?.data || [];
+      posts.push(...batch);
+      const next = response.data?.paging?.next as string | undefined;
+      url = next || null;
+      params = null; // next já traz querystring
+      if (!batch.length) break;
+    }
+
+    igPostsCache = { at: Date.now(), posts };
+    console.log("[Instagram] posts carregados:", posts.length);
+    return posts;
+  } catch (error: any) {
+    const isInvalidToken = error?.response?.data?.error?.message?.includes(
+      "Invalid OAuth access token"
+    );
+    if (isInvalidToken) {
+      console.error(
+        "[Instagram] Token inválido:",
+        error.response?.data?.error?.message
+      );
+    } else {
+      console.warn("[Instagram] falha ao buscar posts:", error?.message || error);
+    }
+    return igPostsCache?.posts || [];
+  }
 }
 
 async function createTicket(waId: string, message: string) {

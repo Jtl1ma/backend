@@ -1,4 +1,5 @@
 import config, { resolveChatModels } from "../config";
+import axios from "axios";
 import {
   djDecorClient,
   type CatalogoAddon,
@@ -9,6 +10,81 @@ import {
 import { notifyHumanAttendant } from "./attendantService";
 import { generateAIResponse } from "./aiService";
 import { isWeekend } from "../utils/dateUtils";
+
+type IgPostLike = {
+  id?: string;
+  caption?: string;
+  media_url?: string;
+  thumbnail_url?: string;
+  permalink?: string;
+  media_type?: string;
+  children?: {
+    data?: Array<{
+      id?: string;
+      media_url?: string;
+      media_type?: string;
+      thumbnail_url?: string;
+    }>;
+  };
+};
+
+function collectUrlsFromIgPost(post: IgPostLike, limit = 3): string[] {
+  const urls: string[] = [];
+  const push = (url?: string | null) => {
+    if (!url || urls.includes(url) || urls.length >= limit) return;
+    urls.push(url);
+  };
+  const kids = post.children?.data || [];
+  if (kids.length) {
+    for (const child of kids) {
+      if (child.media_type && /VIDEO/i.test(child.media_type)) {
+        push(child.thumbnail_url);
+        continue;
+      }
+      push(child.media_url || child.thumbnail_url);
+    }
+  }
+  if (!urls.length) {
+    if (post.media_type && /VIDEO/i.test(post.media_type)) {
+      push(post.thumbnail_url || post.media_url);
+    } else {
+      push(post.media_url || post.thumbnail_url);
+    }
+  }
+  return urls.slice(0, limit);
+}
+
+/** Expande carrossel do Instagram (até 3 fotos do mesmo post). */
+async function expandIgCarousel(post: IgPostLike): Promise<IgPostLike> {
+  if (post.children?.data?.length) return post;
+  if (!post.id) return post;
+  if (post.media_type && !/CAROUSEL/i.test(post.media_type)) return post;
+  const accessToken = config.instagram?.accessToken;
+  if (!accessToken) return post;
+  try {
+    const response = await axios.get(
+      `https://graph.facebook.com/v26.0/${post.id}`,
+      {
+        params: {
+          fields:
+            "id,media_type,media_url,thumbnail_url,children{id,media_type,media_url,thumbnail_url}",
+          access_token: accessToken,
+        },
+        timeout: 8000,
+      }
+    );
+    return {
+      ...post,
+      media_type: response.data?.media_type || post.media_type,
+      media_url: response.data?.media_url || post.media_url,
+      thumbnail_url: response.data?.thumbnail_url || post.thumbnail_url,
+      children: response.data?.children || post.children,
+    };
+  } catch (err: any) {
+    console.warn("[funil] expand carousel:", post.id, err?.message || err);
+    return post;
+  }
+}
 
 const SYSTEM_PROMPT = `Você é a Debysinha — WhatsApp da Débora Pimentel Decoradora (Paracambi - RJ, @debora_pimentel_decoradora).
 
@@ -478,7 +554,9 @@ function extractPostCloseBundle(created: any): PostCloseBundle | null {
   return { portalUrl, pdfUrl, textSuffix, documents };
 }
 
-/** Junta fotos do CRM (por tema) + Instagram (legendas) — só match forte. */
+/** Junta fotos do CRM (por tema) + Instagram (legendas) — só match forte.
+ *  No Instagram, pega até as 3 primeiras fotos do carrossel do melhor post.
+ */
 async function collectVisualReferences(params: {
   temaHint: string | null;
   posts?: Array<{
@@ -487,6 +565,8 @@ async function collectVisualReferences(params: {
     thumbnail_url?: string;
     permalink?: string;
     media_type?: string;
+    id?: string;
+    children?: IgPostLike["children"];
   }>;
   contactName?: string | null;
 }): Promise<{ text: string; images: FunnelImage[] }> {
@@ -500,7 +580,6 @@ async function collectVisualReferences(params: {
 
   console.log("[funil] busca visual tema=", tema || "(nenhum)");
 
-  // Sem tema explícito: não manda portfolio aleatório
   if (!tema) {
     return {
       text:
@@ -510,7 +589,44 @@ async function collectVisualReferences(params: {
     };
   }
 
-  if (djDecorClient.isEnabled()) {
+  const igPosts = (params.posts || []) as IgPostLike[];
+  const igScored = igPosts
+    .map((p) => ({
+      p,
+      score: scoreCaptionAgainstTema(p.caption, tema),
+    }))
+    .filter((x) => x.score >= MIN_SCORE)
+    .sort((a, b) => b.score - a.score);
+
+  // 1) Melhor post do IG: até 3 fotos do carrossel
+  if (igScored[0]) {
+    const expanded = await expandIgCarousel(igScored[0].p);
+    const urls = collectUrlsFromIgPost(expanded, 3);
+    const cap = String(expanded.caption || "");
+    const captionBase = cap
+      ? `Instagram · ${cap.replace(/\s+/g, " ").trim().slice(0, 80)}`
+      : "Instagram · Débora Pimentel";
+
+    for (let i = 0; i < urls.length; i++) {
+      images.push({
+        url: urls[i]!,
+        caption:
+          i === 0
+            ? captionBase
+            : `Instagram · ${tema} (foto ${i + 1}/${urls.length})`,
+      });
+      fromIg++;
+    }
+    console.log(
+      "[funil] IG carrossel urls=",
+      urls.length,
+      "media_type=",
+      expanded.media_type
+    );
+  }
+
+  // 2) Completa com acervo CRM se ainda faltou foto
+  if (images.length < 3 && djDecorClient.isEnabled()) {
     try {
       const refs = await djDecorClient.buscarReferencias({
         tema,
@@ -518,12 +634,11 @@ async function collectVisualReferences(params: {
       });
       const crmImgs = refs.fallback ? [] : refs.imagens || [];
       for (const img of crmImgs) {
+        if (images.length >= 3) break;
         if (!img.url) continue;
+        if (images.some((x) => x.url === img.url)) continue;
         const score = scoreCaptionAgainstTema(img.tema || img.caption, tema);
-        if (score < MIN_SCORE) {
-          console.log("[funil] CRM discard", img.tema, "score=", score);
-          continue;
-        }
+        if (score < MIN_SCORE) continue;
         images.push({
           url: img.url,
           caption:
@@ -532,40 +647,27 @@ async function collectVisualReferences(params: {
         });
         fromCrm++;
       }
-      if (refs.fallback) {
-        console.warn("[funil] CRM fallback ignorado (evita tema errado)");
-      }
     } catch (err: any) {
       console.warn("[funil] refs CRM:", err?.message || err);
     }
   }
 
-  const igPosts = params.posts || [];
-  const igScored = igPosts
-    .map((p) => {
-      const url =
-        p.media_type && /VIDEO/i.test(p.media_type)
-          ? p.thumbnail_url || p.media_url
-          : p.media_url || p.thumbnail_url;
-      return {
-        p,
-        url,
-        score: scoreCaptionAgainstTema(p.caption, tema),
-      };
-    })
-    .filter((x) => Boolean(x.url) && x.score >= MIN_SCORE)
-    .sort((a, b) => b.score - a.score);
-
-  for (const item of igScored) {
-    if (images.length >= 4) break;
-    const cap = String(item.p.caption || "");
-    images.push({
-      url: item.url!,
-      caption: cap
-        ? `Instagram · ${cap.replace(/\s+/g, " ").trim().slice(0, 80)}`
-        : "Instagram · Débora Pimentel",
-    });
-    fromIg++;
+  // 3) Se o 1º post tinha pouco, tenta próximo post do IG
+  if (images.length < 3) {
+    for (const item of igScored.slice(1)) {
+      if (images.length >= 3) break;
+      const expanded = await expandIgCarousel(item.p);
+      const urls = collectUrlsFromIgPost(expanded, 3);
+      for (let i = 0; i < urls.length; i++) {
+        if (images.length >= 3) break;
+        if (images.some((x) => x.url === urls[i])) continue;
+        images.push({
+          url: urls[i]!,
+          caption: `Instagram · ${tema}`,
+        });
+        fromIg++;
+      }
+    }
   }
 
   console.log(

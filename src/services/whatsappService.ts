@@ -497,45 +497,107 @@ export async function sendInteractiveMessage(
 
 let igPostsCache: {
   at: number;
-  posts: Array<{
-    id?: string;
-    caption?: string;
-    media_url?: string;
-    permalink?: string;
-    media_type?: string;
-    thumbnail_url?: string;
-  }>;
+  posts: IgPost[];
 } | null = null;
 
-export async function fetchInstagramPosts(): Promise<
-  Array<{
-    id?: string;
-    caption?: string;
-    media_url?: string;
-    permalink?: string;
-    media_type?: string;
-    thumbnail_url?: string;
-  }>
-> {
+export type IgPost = {
+  id?: string;
+  caption?: string;
+  media_url?: string;
+  permalink?: string;
+  media_type?: string;
+  thumbnail_url?: string;
+  children?: {
+    data?: Array<{
+      id?: string;
+      media_url?: string;
+      media_type?: string;
+      thumbnail_url?: string;
+    }>;
+  };
+};
+
+/** Extrai até N URLs de imagem de um post (carrossel = children). */
+export function igPostImageUrls(post: IgPost, limit = 3): string[] {
+  const urls: string[] = [];
+  const push = (url?: string | null) => {
+    if (!url || urls.includes(url) || urls.length >= limit) return;
+    urls.push(url);
+  };
+
+  const kids = post.children?.data || [];
+  if (kids.length) {
+    for (const child of kids) {
+      if (child.media_type && /VIDEO/i.test(child.media_type)) {
+        push(child.thumbnail_url);
+        continue;
+      }
+      push(child.media_url || child.thumbnail_url);
+    }
+  }
+
+  if (!urls.length) {
+    if (post.media_type && /VIDEO/i.test(post.media_type)) {
+      push(post.thumbnail_url || post.media_url);
+    } else {
+      push(post.media_url || post.thumbnail_url);
+    }
+  }
+
+  return urls.slice(0, limit);
+}
+
+/**
+ * Se o post é carrossel mas veio sem children no feed, busca no Graph.
+ */
+export async function ensureIgPostChildren(post: IgPost): Promise<IgPost> {
+  if (!post.id) return post;
+  if (post.children?.data?.length) return post;
+  if (post.media_type && !/CAROUSEL/i.test(post.media_type)) return post;
+
+  const accessToken = config.instagram.accessToken;
+  if (!accessToken) return post;
+
+  try {
+    const response = await axios.get(
+      `https://graph.facebook.com/v26.0/${post.id}`,
+      {
+        params: {
+          fields:
+            "id,media_type,media_url,thumbnail_url,children{id,media_type,media_url,thumbnail_url}",
+          access_token: accessToken,
+        },
+        timeout: 8000,
+      }
+    );
+    return {
+      ...post,
+      media_type: response.data?.media_type || post.media_type,
+      media_url: response.data?.media_url || post.media_url,
+      thumbnail_url: response.data?.thumbnail_url || post.thumbnail_url,
+      children: response.data?.children || post.children,
+    };
+  } catch (err: any) {
+    console.warn(
+      "[Instagram] falha ao expandir carrossel:",
+      post.id,
+      err?.message || err
+    );
+    return post;
+  }
+}
+
+export async function fetchInstagramPosts(): Promise<IgPost[]> {
   return fetchInstagramPostsDeep(50);
 }
 
 /**
  * Busca mais posts (paginado) pra achar tema nas legendas.
- * Cacheia o pacote maior por 5 min.
+ * Inclui children do carrossel quando a API devolver.
  */
 export async function fetchInstagramPostsDeep(
   maxPosts = 120
-): Promise<
-  Array<{
-    id?: string;
-    caption?: string;
-    media_url?: string;
-    permalink?: string;
-    media_type?: string;
-    thumbnail_url?: string;
-  }>
-> {
+): Promise<IgPost[]> {
   if (
     igPostsCache &&
     Date.now() - igPostsCache.at < 5 * 60 * 1000 &&
@@ -552,18 +614,12 @@ export async function fetchInstagramPostsDeep(
   }
 
   try {
-    const posts: Array<{
-      id?: string;
-      caption?: string;
-      media_url?: string;
-      permalink?: string;
-      media_type?: string;
-      thumbnail_url?: string;
-    }> = [];
+    const posts: IgPost[] = [];
     let url: string | null =
       `https://graph.facebook.com/v26.0/${businessId}/media`;
     let params: Record<string, string | number> | null = {
-      fields: "id,caption,media_url,permalink,media_type,thumbnail_url",
+      fields:
+        "id,caption,media_url,permalink,media_type,thumbnail_url,children{id,media_type,media_url,thumbnail_url}",
       access_token: accessToken,
       limit: 50,
     };
@@ -577,7 +633,7 @@ export async function fetchInstagramPostsDeep(
       posts.push(...batch);
       const next = response.data?.paging?.next as string | undefined;
       url = next || null;
-      params = null; // next já traz querystring
+      params = null;
       if (!batch.length) break;
     }
 

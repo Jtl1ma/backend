@@ -58,104 +58,243 @@ export function detectStyleModifiers(text: string): string[] {
   return found;
 }
 
-/** Tamanhos/kits do catálogo ↔ hashtags que você coloca nas postagens. */
+/**
+ * Kits oficiais do catálogo CRM (mesmo id/nome do seed/catalogo).
+ * Hashtags recomendadas nas postagens = slug do id + variações do nome.
+ */
 export type KitSizeId =
+  | "festa-mesa"
+  | "festa-mesa-com-mesa"
+  | "festa-mesa-mesa-bolas"
   | "pocket"
-  | "media"
   | "intermediaria"
+  | "media"
   | "decoracao-4m"
-  | "decoracao-6m"
-  | "festa-mesa";
+  | "decoracao-6m";
 
-export const KIT_SIZE_HASHTAGS: Record<KitSizeId, string[]> = {
-  pocket: [
-    "pocket",
-    "poket",
-    "festapocket",
-    "kitpocket",
-    "pocketfesta",
-    "festapoket",
-  ],
-  media: [
-    "festamedia",
-    "media",
-    "kitmedia",
-    "tamanhomedia",
-    "festamedi",
-    "kitfestamedia",
-  ],
-  intermediaria: [
-    "intermediaria",
-    "festaintermediaria",
-    "kitintermediaria",
-    "intermediario",
-  ],
-  "decoracao-4m": [
-    "4m",
-    "decoracao4m",
-    "festa4m",
-    "4metros",
-    "kit4m",
-    "decor4m",
-  ],
-  "decoracao-6m": [
-    "6m",
-    "decoracao6m",
-    "festa6m",
-    "6metros",
-    "kit6m",
-    "decor6m",
-  ],
-  "festa-mesa": [
-    "festanamesa",
-    "festamesa",
-    "pegueemonte",
-    "mesa",
-    "kitfestanamesa",
-  ],
+export type CatalogoKitHashtag = {
+  id: KitSizeId;
+  /** Nome oficial no catálogo */
+  nome: string;
+  /** Hashtags sem # (minúsculo, sem acento) */
+  hashtags: string[];
 };
 
-/** Detecta tamanho/kit pedido pelo cliente (inclui typo poket). */
+function slugFromCatalogName(nome: string): string {
+  return temaHashtagSlug(
+    nome
+      .replace(/^kit\s+/i, "")
+      .replace(/[()]/g, " ")
+      .replace(/\//g, " ")
+  );
+}
+
+/** Fonte de verdade alinhada ao catálogo do sistema. */
+export const CATALOGO_KIT_HASHTAGS: CatalogoKitHashtag[] = [
+  {
+    id: "festa-mesa",
+    nome: "Festa na Mesa (Padrão)",
+    hashtags: [
+      "festamesa",
+      "festanamesa",
+      "festanamesapadrao",
+      "kitfestanamesa",
+      "festamesapadrao",
+      "pegueemonte",
+      "r100",
+    ],
+  },
+  {
+    id: "festa-mesa-com-mesa",
+    nome: "Festa na Mesa (Com Mesa)",
+    hashtags: [
+      "festanamesacommesa",
+      "festamesacommesa",
+      "kitfestanamesacommesa",
+      "r130",
+    ],
+  },
+  {
+    id: "festa-mesa-mesa-bolas",
+    nome: "Festa na Mesa (Com Mesa e Bolas na frente da mesa)",
+    hashtags: [
+      "festanamesamesabolas",
+      "festamesabolas",
+      "festanamesacommesabolas",
+      "kitfestanamesabolas",
+      "r160",
+    ],
+  },
+  {
+    id: "pocket",
+    nome: "Kit Festa Pocket",
+    hashtags: [
+      "pocket",
+      "poket",
+      "kitpocket",
+      "kitfestapocket",
+      "festapocket",
+      "festapoket",
+    ],
+  },
+  {
+    id: "intermediaria",
+    nome: "Kit Festa Intermediária",
+    hashtags: [
+      "intermediaria",
+      "kitintermediaria",
+      "kitfestaintermediaria",
+      "festaintermediaria",
+      "intermediario",
+    ],
+  },
+  {
+    id: "media",
+    nome: "Kit Festa Média",
+    hashtags: [
+      "media",
+      "festamedia",
+      "kitmedia",
+      "kitfestamedia",
+      "tamanhomedia",
+    ],
+  },
+  {
+    id: "decoracao-4m",
+    nome: "Decoração 4 Metros",
+    hashtags: [
+      "4m",
+      "4metros",
+      "decoracao4m",
+      "decoracao4metros",
+      "festa4m",
+      "kit4m",
+    ],
+  },
+  {
+    id: "decoracao-6m",
+    nome: "Decoração 6 Metros",
+    hashtags: [
+      "6m",
+      "6metros",
+      "decoracao6m",
+      "decoracao6metros",
+      "festa6m",
+      "kit6m",
+    ],
+  },
+];
+
+/** Mapa id → hashtags (inclui slug do nome oficial). */
+export const KIT_SIZE_HASHTAGS: Record<KitSizeId, string[]> = Object.fromEntries(
+  CATALOGO_KIT_HASHTAGS.map((k) => {
+    const fromNome = slugFromCatalogName(k.nome);
+    const tags = Array.from(
+      new Set([temaHashtagSlug(k.id), fromNome, ...k.hashtags].filter(Boolean))
+    );
+    return [k.id, tags];
+  })
+) as Record<KitSizeId, string[]>;
+
+/** Famílias próximas (ex.: variantes Festa na Mesa) — match parcial ok. */
+const KIT_SIZE_FAMILY: Record<KitSizeId, KitSizeId[]> = {
+  "festa-mesa": [
+    "festa-mesa",
+    "festa-mesa-com-mesa",
+    "festa-mesa-mesa-bolas",
+  ],
+  "festa-mesa-com-mesa": [
+    "festa-mesa",
+    "festa-mesa-com-mesa",
+    "festa-mesa-mesa-bolas",
+  ],
+  "festa-mesa-mesa-bolas": [
+    "festa-mesa",
+    "festa-mesa-com-mesa",
+    "festa-mesa-mesa-bolas",
+  ],
+  pocket: ["pocket"],
+  intermediaria: ["intermediaria"],
+  media: ["media"],
+  "decoracao-4m": ["decoracao-4m"],
+  "decoracao-6m": ["decoracao-6m"],
+};
+
+/** Detecta kit do catálogo pedido pelo cliente (ids oficiais). */
 export function detectKitSize(text: string): KitSizeId | null {
   const t = normalizeTemaText(text);
-  if (/\b(6\s*m|6\s*metros|decoracao\s*6|festa\s+grande\s+de\s*6)\b/.test(t)) {
+
+  if (/\b(6\s*m|6\s*metros|decoracao\s*6|kit\s+6)\b/.test(t)) {
     return "decoracao-6m";
   }
-  if (/\b(4\s*m|4\s*metros|decoracao\s*4)\b/.test(t)) {
+  if (/\b(4\s*m|4\s*metros|decoracao\s*4|kit\s+4)\b/.test(t)) {
     return "decoracao-4m";
   }
-  if (/\b(pocket|poket|pochet)\b/.test(t)) return "pocket";
-  if (/\b(intermedi[aá]ria|intermediario)\b/.test(t)) return "intermediaria";
+  if (/\b(pocket|poket|pochet|kit\s+festa\s+pocket)\b/.test(t)) {
+    return "pocket";
+  }
+  if (/\b(intermedi[aá]ria|kit\s+festa\s+intermedi)\b/.test(t)) {
+    return "intermediaria";
+  }
   if (
-    /\b(festa\s+m[eé]dia|kit\s+(de\s+)?festa\s+m[eé]dia|tamanho\s+m[eé]di[oa]|m[eé]dia)\b/.test(
+    /\b(festa\s+m[eé]dia|kit\s+(de\s+)?festa\s+m[eé]dia|kit\s+m[eé]dia|tamanho\s+m[eé]di[oa])\b/.test(
       t
-    )
+    ) ||
+    /\b(m[eé]dia)\b/.test(t)
   ) {
     return "media";
   }
-  if (/\b(festa\s+na\s+mesa|pegue\s*e\s*monte)\b/.test(t)) return "festa-mesa";
+
+  // Variantes Festa na Mesa (mais específicas primeiro)
+  if (
+    /\b(mesa\s+e\s+bolas|bolas\s+na\s+frente|160|festa\s+na\s+mesa.*bolas)\b/.test(
+      t
+    )
+  ) {
+    return "festa-mesa-mesa-bolas";
+  }
+  if (
+    /\b(festa\s+na\s+mesa\s+com\s+mesa|com\s+mesa\b.*festa\s+na\s+mesa|festa\s+na\s+mesa.*com\s+mesa|\b130\b)\b/.test(
+      t
+    )
+  ) {
+    return "festa-mesa-com-mesa";
+  }
+  if (/\b(festa\s+na\s+mesa|pegue\s*e\s*monte)\b/.test(t)) {
+    return "festa-mesa";
+  }
+
   return null;
 }
 
-/** +2 tamanho certo, 0 neutro, -1 tamanho errado explícito na legenda. */
+export function kitSizeLabel(kitSize: KitSizeId | null): string | null {
+  if (!kitSize) return null;
+  return (
+    CATALOGO_KIT_HASHTAGS.find((k) => k.id === kitSize)?.nome || kitSize
+  );
+}
+
+/** +2 kit certo, +1 família próxima (mesa), 0 neutro, -1 outro kit explícito. */
 export function kitSizeMatchBonus(
   caption: string,
   kitSize: KitSizeId | null
 ): number {
   if (!kitSize) return 0;
   const tags = extractHashtags(caption);
-  const want = KIT_SIZE_HASHTAGS[kitSize] || [];
+  const wantExact = KIT_SIZE_HASHTAGS[kitSize] || [];
+  const family = KIT_SIZE_FAMILY[kitSize] || [kitSize];
+  const wantFamily = family.flatMap((id) => KIT_SIZE_HASHTAGS[id] || []);
   const allSizeTags = Object.values(KIT_SIZE_HASHTAGS).flat();
 
-  const hasWant = tags.some((t) =>
-    want.some((w) => t === w || tagsOverlap(t, w))
-  );
-  if (hasWant) return 2;
+  const hit = (want: string[]) =>
+    tags.some((t) => want.some((w) => t === w || tagsOverlap(t, w)));
 
-  // Tem hashtag de OUTRO tamanho?
+  if (hit(wantExact)) return 2;
+  if (hit(wantFamily)) return 1;
+
   const hasOther = tags.some((t) => {
     if (!allSizeTags.some((w) => t === w || tagsOverlap(t, w))) return false;
-    return !want.some((w) => t === w || tagsOverlap(t, w));
+    return !wantFamily.some((w) => t === w || tagsOverlap(t, w));
   });
   if (hasOther) return -1;
   return 0;

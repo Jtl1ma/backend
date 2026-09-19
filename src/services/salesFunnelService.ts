@@ -10,6 +10,7 @@ import {
 import {
   NAMED_TEMAS_RE,
   detectKitSize,
+  kitSizeLabel,
   kitSizeMatchBonus,
   scoreCaptionForTheme,
 } from "../themeHashtagOntology";
@@ -521,7 +522,7 @@ async function collectVisualReferences(params: {
     "[funil] busca visual tema=",
     tema || "(nenhum)",
     "kit=",
-    kitSize || "(qualquer)"
+    kitSize ? `${kitSize} (${kitSizeLabel(kitSize)})` : "(qualquer)"
   );
 
   if (!tema) {

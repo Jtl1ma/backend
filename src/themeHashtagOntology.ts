@@ -59,8 +59,8 @@ export function detectStyleModifiers(text: string): string[] {
 }
 
 /**
- * Kits oficiais do catálogo CRM (mesmo id/nome do seed/catalogo).
- * Hashtags recomendadas nas postagens = slug do id + variações do nome.
+ * Kits oficiais do catálogo CRM (mesmo id/nome do seed + tela Nova venda).
+ * Hashtags recomendadas = slug do id + variações do nome.
  */
 export type KitSizeId =
   | "festa-mesa"
@@ -70,7 +70,12 @@ export type KitSizeId =
   | "intermediaria"
   | "media"
   | "decoracao-4m"
-  | "decoracao-6m";
+  | "decoracao-6m"
+  | "casamento-trio-bj"
+  | "casamento-dupla-bj"
+  | "casamento-kit-bj"
+  | "pos-civil-p"
+  | "pos-civil-m";
 
 export type CatalogoKitHashtag = {
   id: KitSizeId;
@@ -89,7 +94,7 @@ function slugFromCatalogName(nome: string): string {
   );
 }
 
-/** Fonte de verdade alinhada ao catálogo do sistema. */
+/** Fonte de verdade alinhada ao catálogo do sistema (tela completa). */
 export const CATALOGO_KIT_HASHTAGS: CatalogoKitHashtag[] = [
   {
     id: "festa-mesa",
@@ -101,7 +106,6 @@ export const CATALOGO_KIT_HASHTAGS: CatalogoKitHashtag[] = [
       "kitfestanamesa",
       "festamesapadrao",
       "pegueemonte",
-      "r100",
     ],
   },
   {
@@ -111,7 +115,6 @@ export const CATALOGO_KIT_HASHTAGS: CatalogoKitHashtag[] = [
       "festanamesacommesa",
       "festamesacommesa",
       "kitfestanamesacommesa",
-      "r130",
     ],
   },
   {
@@ -122,7 +125,6 @@ export const CATALOGO_KIT_HASHTAGS: CatalogoKitHashtag[] = [
       "festamesabolas",
       "festanamesacommesabolas",
       "kitfestanamesabolas",
-      "r160",
     ],
   },
   {
@@ -183,6 +185,60 @@ export const CATALOGO_KIT_HASHTAGS: CatalogoKitHashtag[] = [
       "kit6m",
     ],
   },
+  {
+    id: "casamento-trio-bj",
+    nome: "Casamento com Trio BJ",
+    hashtags: [
+      "casamentotriobj",
+      "triobj",
+      "casamentotrio",
+      "kitcasamentotriobj",
+      "casamentobjtrio",
+    ],
+  },
+  {
+    id: "casamento-dupla-bj",
+    nome: "Casamento com Dupla BJ",
+    hashtags: [
+      "casamentoduplabj",
+      "duplabj",
+      "casamentodupla",
+      "kitcasamentoduplabj",
+      "casamentobjdupla",
+    ],
+  },
+  {
+    id: "casamento-kit-bj",
+    nome: "Casamento Kit BJ",
+    hashtags: [
+      "casamentokitbj",
+      "kitbj",
+      "casamentobj",
+      "kitcasamentobj",
+      "casamentocompletobj",
+    ],
+  },
+  {
+    id: "pos-civil-p",
+    nome: "Pós Civil P",
+    hashtags: [
+      "poscivilp",
+      "poscivil",
+      "posciviltamanhop",
+      "kitposcivilp",
+      "poscivilpequeno",
+    ],
+  },
+  {
+    id: "pos-civil-m",
+    nome: "Pós Civil M",
+    hashtags: [
+      "poscivilm",
+      "posciviltamanhom",
+      "kitposcivilm",
+      "poscivilmedio",
+    ],
+  },
 ];
 
 /** Mapa id → hashtags (inclui slug do nome oficial). */
@@ -196,33 +252,60 @@ export const KIT_SIZE_HASHTAGS: Record<KitSizeId, string[]> = Object.fromEntries
   })
 ) as Record<KitSizeId, string[]>;
 
-/** Famílias próximas (ex.: variantes Festa na Mesa) — match parcial ok. */
+const MESA_FAMILY: KitSizeId[] = [
+  "festa-mesa",
+  "festa-mesa-com-mesa",
+  "festa-mesa-mesa-bolas",
+];
+const CASAMENTO_BJ_FAMILY: KitSizeId[] = [
+  "casamento-trio-bj",
+  "casamento-dupla-bj",
+  "casamento-kit-bj",
+];
+const POS_CIVIL_FAMILY: KitSizeId[] = ["pos-civil-p", "pos-civil-m"];
+
+/** Famílias próximas — match parcial ok. */
 const KIT_SIZE_FAMILY: Record<KitSizeId, KitSizeId[]> = {
-  "festa-mesa": [
-    "festa-mesa",
-    "festa-mesa-com-mesa",
-    "festa-mesa-mesa-bolas",
-  ],
-  "festa-mesa-com-mesa": [
-    "festa-mesa",
-    "festa-mesa-com-mesa",
-    "festa-mesa-mesa-bolas",
-  ],
-  "festa-mesa-mesa-bolas": [
-    "festa-mesa",
-    "festa-mesa-com-mesa",
-    "festa-mesa-mesa-bolas",
-  ],
+  "festa-mesa": MESA_FAMILY,
+  "festa-mesa-com-mesa": MESA_FAMILY,
+  "festa-mesa-mesa-bolas": MESA_FAMILY,
   pocket: ["pocket"],
   intermediaria: ["intermediaria"],
   media: ["media"],
   "decoracao-4m": ["decoracao-4m"],
   "decoracao-6m": ["decoracao-6m"],
+  "casamento-trio-bj": CASAMENTO_BJ_FAMILY,
+  "casamento-dupla-bj": CASAMENTO_BJ_FAMILY,
+  "casamento-kit-bj": CASAMENTO_BJ_FAMILY,
+  "pos-civil-p": POS_CIVIL_FAMILY,
+  "pos-civil-m": POS_CIVIL_FAMILY,
 };
 
 /** Detecta kit do catálogo pedido pelo cliente (ids oficiais). */
 export function detectKitSize(text: string): KitSizeId | null {
   const t = normalizeTemaText(text);
+
+  // Casamento BJ (específico antes de "casamento" genérico)
+  if (/\b(kit\s*bj|casamento\s+kit\s*bj|casamento\s+completo\s*bj)\b/.test(t)) {
+    return "casamento-kit-bj";
+  }
+  if (/\b(dupla\s*bj|casamento\s+(com\s+)?dupla)\b/.test(t)) {
+    return "casamento-dupla-bj";
+  }
+  if (/\b(trio\s*bj|casamento\s+(com\s+)?trio)\b/.test(t)) {
+    return "casamento-trio-bj";
+  }
+
+  // Pós civil
+  if (/\b(p[oó]s\s*civil\s*m|pos\s*civil\s*m|p[oó]s\s*civil\s+m[eé]di)\b/.test(t)) {
+    return "pos-civil-m";
+  }
+  if (/\b(p[oó]s\s*civil\s*p|pos\s*civil\s*p|p[oó]s\s*civil\s+pequeno)\b/.test(t)) {
+    return "pos-civil-p";
+  }
+  if (/\b(p[oó]s\s*civil|pos\s*civil)\b/.test(t)) {
+    return "pos-civil-p"; // padrão P se não especificar
+  }
 
   if (/\b(6\s*m|6\s*metros|decoracao\s*6|kit\s+6)\b/.test(t)) {
     return "decoracao-6m";
@@ -240,23 +323,18 @@ export function detectKitSize(text: string): KitSizeId | null {
     /\b(festa\s+m[eé]dia|kit\s+(de\s+)?festa\s+m[eé]dia|kit\s+m[eé]dia|tamanho\s+m[eé]di[oa])\b/.test(
       t
     ) ||
-    /\b(m[eé]dia)\b/.test(t)
+    (/\b(m[eé]dia)\b/.test(t) && !/p[oó]s\s*civil/.test(t))
   ) {
     return "media";
   }
 
-  // Variantes Festa na Mesa (mais específicas primeiro)
   if (
-    /\b(mesa\s+e\s+bolas|bolas\s+na\s+frente|160|festa\s+na\s+mesa.*bolas)\b/.test(
-      t
-    )
+    /\b(mesa\s+e\s+bolas|bolas\s+na\s+frente|festa\s+na\s+mesa.*bolas)\b/.test(t)
   ) {
     return "festa-mesa-mesa-bolas";
   }
   if (
-    /\b(festa\s+na\s+mesa\s+com\s+mesa|com\s+mesa\b.*festa\s+na\s+mesa|festa\s+na\s+mesa.*com\s+mesa|\b130\b)\b/.test(
-      t
-    )
+    /\b(festa\s+na\s+mesa\s+com\s+mesa|festa\s+na\s+mesa.*com\s+mesa)\b/.test(t)
   ) {
     return "festa-mesa-com-mesa";
   }
@@ -327,6 +405,16 @@ export const THEME_FAMILIES: ThemeFamily[] = [
       "weddingdecor",
       "noivos",
       "casamentorustico",
+      // kits do catálogo
+      "casamentotriobj",
+      "casamentoduplabj",
+      "casamentokitbj",
+      "triobj",
+      "duplabj",
+      "kitbj",
+      "poscivil",
+      "poscivilp",
+      "poscivilm",
     ],
     keywords: ["casamento", "noivos", "wedding", "bride"],
   },

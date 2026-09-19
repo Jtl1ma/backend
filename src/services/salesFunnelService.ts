@@ -187,6 +187,19 @@ function normalizeTemaText(s: string): string {
     .trim();
 }
 
+/** #FundoDoMar / "Fundo do Mar" → fundodomar (padrão das legendas). */
+function temaHashtagSlug(tema: string): string {
+  return normalizeTemaText(tema).replace(/[^a-z0-9]+/g, "");
+}
+
+/** Mantém #hashtags coladas pra casar com #charevelacao na legenda. */
+function normalizeCaptionForHashtags(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -239,21 +252,35 @@ function temaSynonyms(tema: string): string[] {
         "cha revelacao",
         "chá revelação",
         "cha de revelacao",
+        "charevelacao",
         "revelacao",
         "revelação",
         "gender reveal",
-        "cha revelacao",
         "menino ou menina",
-        "rosa e azul",
       ],
     },
     {
-      keys: ["fazendinha", "fazenda", "sitio"],
-      syns: ["fazendinha", "fazenda", "sitio", "sítio"],
+      keys: [
+        "sitio do pica pau",
+        "sitio do picapau",
+        "pica pau amarelo",
+        "picapau",
+      ],
+      syns: [
+        "sitio do pica pau amarelo",
+        "sitiodopicapaualamarelo",
+        "pica pau",
+        "picapau",
+        "monteiro lobato",
+      ],
+    },
+    {
+      keys: ["fazendinha", "fazenda"],
+      syns: ["fazendinha", "fazenda"],
     },
     {
       keys: ["looney", "baby looney"],
-      syns: ["looney", "looney tunes", "baby looney"],
+      syns: ["looney", "looney tunes", "baby looney", "babylooneytunes"],
     },
     { keys: ["safari", "selva"], syns: ["safari", "selva", "jungle"] },
     { keys: ["minnie", "mickey"], syns: ["minnie", "mickey"] },
@@ -278,16 +305,38 @@ function temaSynonyms(tema: string): string[] {
 
 /**
  * Score 0–100 só com evidência forte na legenda/tema.
- * Exige frase do tema, sinônimo forte, ou TODAS as palavras significativas.
+ * Prioridade máxima: hashtag colada (#fundodomar, #charevelacao).
  */
 function scoreCaptionAgainstTema(
   caption: string | null | undefined,
   tema: string | null
 ): number {
   if (!tema) return 0;
-  const cap = normalizeTemaText(caption || "");
-  if (!cap) return 0;
+  const raw = String(caption || "");
+  if (!raw.trim()) return 0;
+  const capHash = normalizeCaptionForHashtags(raw);
+  const cap = normalizeTemaText(raw);
   const q = normalizeTemaText(tema);
+  const slug = temaHashtagSlug(tema);
+
+  // 1) Hashtag exata na legenda — padrão que você vai usar nas postagens
+  if (slug.length >= 4) {
+    const hashtagRe = new RegExp(`#${escapeRe(slug)}(?![a-z0-9])`, "i");
+    if (hashtagRe.test(capHash)) return 100;
+    // sem #, mas slug colado (fundodomar)
+    if (new RegExp(`(?:^|[^a-z0-9])${escapeRe(slug)}(?![a-z0-9])`, "i").test(capHash)) {
+      return 98;
+    }
+  }
+
+  // Hashtags dos sinônimos (#charevelacao etc.)
+  for (const syn of temaSynonyms(q)) {
+    const synSlug = temaHashtagSlug(syn);
+    if (synSlug.length < 4) continue;
+    if (new RegExp(`#${escapeRe(synSlug)}(?![a-z0-9])`, "i").test(capHash)) {
+      return 100;
+    }
+  }
 
   if (hasWholePhrase(cap, q) || cap.replace(/\s/g, "").includes(q.replace(/\s/g, ""))) {
     return 100;
@@ -299,8 +348,6 @@ function scoreCaptionAgainstTema(
     }
   }
 
-  // Todas as palavras >= 4 do tema (ex.: "fundo" + palavra longa)
-  // Para "cha revelacao": cha(3) skip, revelacao(9) alone → não basta 1 token
   const parts = q
     .split(/\s+/)
     .filter(
@@ -311,7 +358,6 @@ function scoreCaptionAgainstTema(
   if (parts.length >= 2 && parts.every((p) => hasWholePhrase(cap, p))) {
     return 90;
   }
-  // Um token bem específico (>= 8): "revelacao"
   if (parts.length === 1 && parts[0]!.length >= 8 && hasWholePhrase(cap, parts[0]!)) {
     return 88;
   }
@@ -320,7 +366,7 @@ function scoreCaptionAgainstTema(
 }
 
 const NAMED_TEMAS_RE =
-  /\b(fundo\s+do\s+mar|ch[aá]\s*(de\s*)?revela[cç][aã]o|gender\s*reveal|happy\s*birthday|preto\s+e\s+branco|minnie|safari|boteco|frozen|bluey|fazendinha|discoteca|jardim|moranguinho|neon|sereia|oceano|unicornio|unic[oó]rnio|dinossauro|mario|luccas\s+neto|looney\s*tunes|baby\s+looney|ursinho|ursinha)\b/i;
+  /\b(fundo\s+do\s+mar|ch[aá]\s*(de\s*)?revela[cç][aã]o|gender\s*reveal|s[ií]tio\s+do\s+pica\s*pau(?:\s+amarelo)?|happy\s*birthday|preto\s+e\s+branco|minnie|safari|boteco|frozen|bluey|fazendinha|discoteca|jardim|moranguinho|neon|sereia|oceano|unicornio|unic[oó]rnio|dinossauro|mario|luccas\s+neto|looney\s*tunes|baby\s+looney|ursinho|ursinha)\b/i;
 
 function extractTemaHint(text: string, slotsTema?: string | null): string | null {
   const t = text;
